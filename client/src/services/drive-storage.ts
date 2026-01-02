@@ -1,6 +1,8 @@
 import { DriveConfig } from '../../../../shared/src/types'
 
 const STORAGE_KEY = 'manager-plikow-drives'
+const STORAGE_VERSION_KEY = 'manager-plikow-drives-version'
+const CURRENT_VERSION = '3' // Zwiększ wersję gdy zmieniasz DEFAULT_DRIVES
 
 const DEFAULT_DRIVES: DriveConfig[] = [
   {
@@ -20,22 +22,45 @@ const DEFAULT_DRIVES: DriveConfig[] = [
     needsConfiguration: true
   },
   {
-    id: 'norfeusz',
-    name: 'Dysk Norfeusz (Google)',
-    defaultPath: 'G:\\Mój dysk',
-    needsConfiguration: false
-  },
-  {
     id: 'norbert',
-    name: 'Dysk Norbert S. (Google)',
-    defaultPath: 'H:\\Mój dysk',
+    name: 'Norbert S. (Google Drive)',
+    isGoogleDrive: true,
     needsConfiguration: false
   }
 ]
 
 export const driveStorage = {
   getDrives(): DriveConfig[] {
+    // Sprawdź wersję konfiguracji
+    const storedVersion = localStorage.getItem(STORAGE_VERSION_KEY)
     const stored = localStorage.getItem(STORAGE_KEY)
+    
+    // Jeśli wersja się nie zgadza, zrób merge zapisanych z domyślnymi
+    if (storedVersion !== CURRENT_VERSION) {
+      let existingDrives: DriveConfig[] = []
+      
+      if (stored) {
+        try {
+          existingDrives = JSON.parse(stored)
+        } catch (e) {
+          existingDrives = []
+        }
+      }
+      
+      // Merguj: zachowaj customPath ze starych, dodaj nowe, usuń nieistniejące
+      const mergedDrives = DEFAULT_DRIVES.map(defaultDrive => {
+        const existing = existingDrives.find(d => d.id === defaultDrive.id)
+        if (existing && existing.customPath) {
+          return { ...defaultDrive, customPath: existing.customPath }
+        }
+        return defaultDrive
+      })
+      
+      localStorage.setItem(STORAGE_VERSION_KEY, CURRENT_VERSION)
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(mergedDrives))
+      return mergedDrives
+    }
+    
     if (stored) {
       return JSON.parse(stored)
     }

@@ -4,6 +4,8 @@ import dotenv from 'dotenv'
 import fs from 'fs-extra'
 import path from 'path'
 import filesRouter from './routes/files'
+import authRouter from './routes/auth'
+import googleDriveRouter from './routes/google-drive'
 
 dotenv.config()
 
@@ -23,6 +25,8 @@ app.get('/api/health', (req, res) => {
 
 // Routes
 app.use('/api/files', filesRouter)
+app.use('/api/auth', authRouter)
+app.use('/api/google-drive', googleDriveRouter)
 
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`)

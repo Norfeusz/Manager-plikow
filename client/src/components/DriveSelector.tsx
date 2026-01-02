@@ -21,11 +21,19 @@ export default function DriveSelector({ onDriveChange, onDriveSelect }: DriveSel
   const [systemDrives, setSystemDrives] = useState<any[]>([])
 
   const handleDriveClick = (drive: DriveConfig) => {
-    const path = drive.customPath || drive.defaultPath
-    
     // Zawsze wybierz dysk
     setSelectedDriveId(drive.id)
     onDriveSelect(drive.id)
+    
+    // Google Drive - nie potrzebuje lokalnej ścieżki
+    if (drive.isGoogleDrive) {
+      const folderId = drive.googleDriveFolderId || 'root'
+      onDriveChange(`gdrive:${folderId}`)
+      return
+    }
+    
+    // Dysk lokalny
+    const path = drive.customPath || drive.defaultPath
     
     if (!path && drive.needsConfiguration) {
       // Brak ścieżki - nie możemy załadować zawartości
@@ -129,6 +137,10 @@ export default function DriveSelector({ onDriveChange, onDriveSelect }: DriveSel
   ;(window as any).openDriveConfig = openConfigModalForCurrentDrive
 
   const isDriveConfigured = (drive: DriveConfig) => {
+    if (drive.isGoogleDrive) {
+      // Google Drive nie wymaga konfiguracji lokalnej ścieżki
+      return true
+    }
     return !drive.needsConfiguration || !!drive.customPath
   }
 

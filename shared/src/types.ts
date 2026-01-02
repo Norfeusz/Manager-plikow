@@ -26,6 +26,8 @@ export interface DriveConfig {
   defaultPath?: string;
   customPath?: string;
   needsConfiguration: boolean;
+  isGoogleDrive?: boolean;
+  googleDriveFolderId?: string;
 }
 
 export interface DuplicateInfo {

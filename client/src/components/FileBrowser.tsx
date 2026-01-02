@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { FileMetadata, BrowseResponse } from '../../../../shared/src/types'
 import { fileApi } from '../services/api'
+import { googleDriveApi } from '../services/google-drive-api'
 import FileActions from './FileActions'
 
 interface FileBrowserProps {
@@ -24,7 +25,16 @@ export default function FileBrowser({ initialPath, onPathChange }: FileBrowserPr
     setError(null)
     
     try {
-      const result = await fileApi.browseDirectory(path)
+      let result: BrowseResponse
+      
+      // Wykryj czy to Google Drive (format: gdrive:folderId)
+      if (path.startsWith('gdrive:')) {
+        const folderId = path.replace('gdrive:', '')
+        result = await googleDriveApi.browse(folderId)
+      } else {
+        result = await fileApi.browseDirectory(path)
+      }
+      
       setData(result)
       onPathChange?.(path)
     } catch (err: any) {
@@ -46,7 +56,12 @@ export default function FileBrowser({ initialPath, onPathChange }: FileBrowserPr
 
     // Normalny klik - nawigacja dla folderów
     if (item.isDirectory) {
-      setCurrentPath(item.path)
+      // Dla Google Drive używamy ID zamiast ścieżki
+      if (currentPath.startsWith('gdrive:')) {
+        setCurrentPath(`gdrive:${item.path}`)
+      } else {
+        setCurrentPath(item.path)
+      }
       setSelectedFiles([])
     }
   }

@@ -33,12 +33,14 @@ Launcher automatycznie uruchomi serwer, klienta i otworzy przeglądarkę.
 ### Development - Ręcznie
 
 **Terminal 1 - Backend:**
+
 ```bash
 cd server
 npm run dev
 ```
 
 **Terminal 2 - Frontend:**
+
 ```bash
 cd client
 npm run dev
@@ -62,12 +64,14 @@ Szczegółowa dokumentacja techniczna: `dokumentacja/dokumentacja-techniczna.md`
 ## 🛠️ Stack Technologiczny
 
 **Frontend:**
+
 - React 18+
 - Vite
 - TypeScript
 - Tailwind CSS
 
 **Backend:**
+
 - Node.js
 - Express
 - TypeScript
@@ -80,6 +84,7 @@ Wersja: 0.2.0
 Status: W aktywnym rozwoju
 
 ### Zaimplementowane
+
 - ✅ Przeglądanie plików i folderów
 - ✅ Upload plików
 - ✅ Operacje na plikach (przenieś, kopiuj, usuń)
@@ -87,6 +92,7 @@ Status: W aktywnym rozwoju
 - ✅ System dysków z konfiguracją
 
 ### W planach
+
 - 🔄 Wykrywanie duplikatów
 - 🔄 Odczyt EXIF
 - 🔄 Automatyczne nazewnictwo YYYY-MM-DD
