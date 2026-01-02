@@ -11,6 +11,28 @@ const router = Router()
 const fileService = new FileService()
 const exifService = new ExifService()
 
+// Funkcja pomocnicza do usuwania pustych folderów
+async function removeEmptyDirectories(dirPath: string): Promise<void> {
+  try {
+    const items = await fs.readdir(dirPath)
+    
+    // Jeśli folder jest pusty, usuń go
+    if (items.length === 0) {
+      await fs.rmdir(dirPath)
+      console.log(`Usunięto pusty folder: ${dirPath}`)
+      
+      // Rekurencyjnie sprawdź folder nadrzędny
+      const parentDir = path.dirname(dirPath)
+      // Nie usuwaj głównych dysków (np. D:\)
+      if (parentDir !== dirPath && !parentDir.match(/^[A-Z]:\\$/i)) {
+        await removeEmptyDirectories(parentDir)
+      }
+    }
+  } catch (error) {
+    // Ignoruj błędy (folder może nie istnieć lub być niedostępny)
+  }
+}
+
 // Konfiguracja multer dla uploadu - najpierw do temp, potem przenosimy
 const upload = multer({ 
   dest: 'uploads/temp',
@@ -235,7 +257,7 @@ router.get('/exif', async (req: Request, res: Response) => {
 // POST /api/files/organize-photos
 router.post('/organize-photos', async (req: Request, res: Response) => {
   try {
-    const { sourcePath, targetBaseDir } = req.body
+    const { sourcePath, targetBaseDir, operation = 'move', customFolder } = req.body
     
     if (!sourcePath || !targetBaseDir) {
       return res.status(400).json({ 
@@ -243,9 +265,16 @@ router.post('/organize-photos', async (req: Request, res: Response) => {
       })
     }
     
+    if (operation !== 'move' && operation !== 'copy') {
+      return res.status(400).json({ 
+        error: 'Nieprawidłowa operacja. Dozwolone: move, copy' 
+      })
+    }
+    
     // Sprawdź czy to plik czy folder
     const stats = await fs.stat(sourcePath)
     const filesToProcess: string[] = []
+    const sourceDirs = new Set<string>() // Zbiór folderów źródłowych do sprawdzenia
     
     if (stats.isDirectory()) {
       // Zbierz wszystkie zdjęcia z folderu
@@ -255,10 +284,12 @@ router.post('/organize-photos', async (req: Request, res: Response) => {
         const fileStats = await fs.stat(fullPath)
         if (fileStats.isFile()) {
           filesToProcess.push(fullPath)
+          sourceDirs.add(path.dirname(fullPath))
         }
       }
     } else {
       filesToProcess.push(sourcePath)
+      sourceDirs.add(path.dirname(sourcePath))
     }
     
     const results = {
@@ -272,7 +303,7 @@ router.post('/organize-photos', async (req: Request, res: Response) => {
       results.processed++
       
       try {
-        const newPath = await exifService.generateFullPhotoPath(filePath, targetBaseDir)
+        const newPath = await exifService.generateFullPhotoPath(filePath, targetBaseDir, customFolder)
         
         if (!newPath) {
           results.skipped++
@@ -283,12 +314,23 @@ router.post('/organize-photos', async (req: Request, res: Response) => {
         // Utwórz folder docelowy
         await fs.ensureDir(path.dirname(newPath))
         
-        // Przenieś plik
-        await fs.move(filePath, newPath, { overwrite: false })
+        // Przenieś lub kopiuj plik
+        if (operation === 'move') {
+          await fs.move(filePath, newPath, { overwrite: false })
+        } else {
+          await fs.copy(filePath, newPath, { overwrite: false })
+        }
         results.moved++
         
       } catch (error: any) {
         results.errors.push(`${path.basename(filePath)}: ${error.message}`)
+      }
+    }
+    
+    // Jeśli operacja to move, usuń puste foldery źródłowe
+    if (operation === 'move') {
+      for (const dir of sourceDirs) {
+        await removeEmptyDirectories(dir)
       }
     }
     

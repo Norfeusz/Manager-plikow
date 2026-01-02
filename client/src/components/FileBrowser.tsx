@@ -46,16 +46,12 @@ export default function FileBrowser({ initialPath, onPathChange }: FileBrowserPr
   }
 
   const handleItemClick = (item: FileMetadata, e: React.MouseEvent) => {
-    // Ctrl+Click dla zaznaczania
-    if (e.ctrlKey || e.metaKey) {
-      e.preventDefault()
-      if (!item.isDirectory) {
-        toggleFileSelection(item)
-      }
-      return
-    }
+    // Jednokrotne kliknięcie zaznacza (zarówno pliki jak i foldery)
+    toggleFileSelection(item)
+  }
 
-    // Normalny klik - nawigacja dla folderów
+  const handleItemDoubleClick = (item: FileMetadata) => {
+    // Dwukrotne kliknięcie w folder - nawigacja
     if (item.isDirectory) {
       // Dla Google Drive używamy ID zamiast ścieżki
       if (currentPath.startsWith('gdrive:')) {
@@ -80,6 +76,16 @@ export default function FileBrowser({ initialPath, onPathChange }: FileBrowserPr
 
   const isFileSelected = (file: FileMetadata) => {
     return selectedFiles.some(f => f.path === file.path)
+  }
+
+  const handleSelectAll = () => {
+    if (data) {
+      setSelectedFiles(data.items)
+    }
+  }
+
+  const handleDeselectAll = () => {
+    setSelectedFiles([])
   }
 
   const handleGoUp = () => {
@@ -132,7 +138,30 @@ export default function FileBrowser({ initialPath, onPathChange }: FileBrowserPr
 
       {/* Panel akcji na zaznaczonych plikach */}
       <div className="px-4 pt-4">
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
+          {/* Przyciski zaznaczania */}
+          {data && data.items.length > 0 && (
+            <div className="flex gap-2 mr-4">
+              <button
+                onClick={handleSelectAll}
+                className="px-3 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg transition-colors text-sm"
+                title="Zaznacz wszystkie pliki"
+              >
+                ✓ Zaznacz wszystkie
+              </button>
+              {selectedFiles.length > 0 && (
+                <button
+                  onClick={handleDeselectAll}
+                  className="px-3 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg transition-colors text-sm"
+                  title="Odznacz wszystkie"
+                >
+                  ✗ Odznacz
+                </button>
+              )}
+            </div>
+          )}
+          
+          {/* Akcje na zaznaczonych plikach */}
           <FileActions
             selectedFiles={selectedFiles}
             currentPath={currentPath}
@@ -197,20 +226,19 @@ export default function FileBrowser({ initialPath, onPathChange }: FileBrowserPr
                     <tr
                       key={item.path}
                       onClick={(e) => handleItemClick(item, e)}
-                      className={`${
-                        item.isDirectory ? 'cursor-pointer hover:bg-blue-50' : 'hover:bg-gray-50'
-                      } ${isFileSelected(item) ? 'bg-blue-100' : ''}`}
+                      onDoubleClick={() => handleItemDoubleClick(item)}
+                      className={`cursor-pointer hover:bg-gray-50 ${
+                        isFileSelected(item) ? 'bg-blue-100' : ''
+                      }`}
                     >
                       <td className="px-2 py-4">
-                        {!item.isDirectory && (
-                          <input
-                            type="checkbox"
-                            checked={isFileSelected(item)}
-                            onChange={() => toggleFileSelection(item)}
-                            onClick={(e) => e.stopPropagation()}
-                            className="rounded"
-                          />
-                        )}
+                        <input
+                          type="checkbox"
+                          checked={isFileSelected(item)}
+                          onChange={() => toggleFileSelection(item)}
+                          onClick={(e) => e.stopPropagation()}
+                          className="rounded"
+                        />
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="flex items-center">
@@ -247,7 +275,9 @@ export default function FileBrowser({ initialPath, onPathChange }: FileBrowserPr
             pliki: {data.items.filter(i => !i.isDirectory).length})
             {selectedFiles.length > 0 && (
               <span className="ml-4 text-blue-600 font-medium">
-                | Zaznaczono: {selectedFiles.length}
+                | Zaznaczono: {selectedFiles.length} 
+                (foldery: {selectedFiles.filter(f => f.isDirectory).length}, 
+                pliki: {selectedFiles.filter(f => !f.isDirectory).length})
               </span>
             )}
           </p>

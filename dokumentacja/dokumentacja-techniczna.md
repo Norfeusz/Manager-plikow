@@ -2,7 +2,7 @@
 
 **Status projektu:** W aktywnym rozwoju  
 **Ostatnia aktualizacja:** 2 stycznia 2026  
-**Wersja:** 0.4.0
+**Wersja:** 0.5.0
 
 ## Przegląd Projektu
 
@@ -155,23 +155,25 @@ Manager Plikow/
 
 - `CreateFolder.tsx` - komponent tworzenia folderów
 
-### ✅ 4. Operacje na Plikach
+### ✅ 4. Operacje na Plikach i Folderach
 
 **Status:** Zaimplementowane
 
-#### Zaznaczanie plików:
+#### Zaznaczanie elementów:
 
-- **Ctrl + Click** - zaznaczenie pojedynczego pliku
-- **Checkbox** - zaznaczenie wielu plików
-- Wizualne podświetlenie zaznaczonych plików (niebieskie tło)
-- Licznik zaznaczonych plików
-- Przycisk "Wyczyść zaznaczenie"
+- **Jednokrotne kliknięcie** - zaznaczenie pliku lub folderu
+- **Dwukrotne kliknięcie** - otwarcie folderu (nawigacja)
+- **Checkbox** - zaznaczenie wielu plików i folderów
+- **Przycisk "Zaznacz wszystkie"** - zaznaczenie wszystkich elementów w katalogu
+- **Przycisk "Odznacz"** - wyczyszczenie zaznaczenia
+- Wizualne podświetlenie zaznaczonych elementów (niebieskie tło)
+- Licznik zaznaczonych elementów z podziałem na foldery/pliki
 
-#### Akcje na zaznaczonych plikach:
+#### Akcje na zaznaczonych plikach i folderach:
 
-- **Przenieś** - przeniesienie plików do innego folderu
-- **Kopiuj** - skopiowanie plików do innego folderu
-- **Usuń** - usunięcie plików (z potwierdzeniem)
+- **Przenieś** - przeniesienie plików/folderów do innego folderu (z automatycznym usuwaniem pustych folderów źródłowych)
+- **Kopiuj** - skopiowanie plików/folderów do innego folderu
+- **Usuń** - usunięcie plików/folderów (z potwierdzeniem)
 
 #### Wybór folderu docelowego:
 
@@ -226,13 +228,18 @@ Manager Plikow/
 
 - **Odczyt metadanych EXIF** - data wykonania, aparat, ustawienia, GPS
 - **Automatyczne nazewnictwo** - `YYYY-MM-DD_oryginalna-nazwa.jpg`
-- **Organizacja w strukturze** - `Zdjecia/YYYY/MM/plik.jpg`
+- **Organizacja w strukturze** - `Zdjecia/YYYY/MM/plik.jpg` lub `Zdjecia/YYYY/NazwaWlasna/plik.jpg`
+- **Wybór operacji** - przeniesienie (move) lub kopiowanie (copy) plików
+- **Niestandardowe foldery** - możliwość organizacji w folderach o własnej nazwie zamiast numerów miesięcy
+- **Szybki wybór lokalizacji** - przyciski dla popularnych lokalizacji (F:\Zdjecia, D:\DATA\Zdjecia)
+- **Domyślna lokalizacja** - F:\Zdjecia (Dysk Sony)
 - **Batch processing** - przetwarzanie wielu zdjęć jednocześnie
-- **Raport z operacji** - liczba przetworzonych/przeniesionych/pominiętych plików
+- **Automatyczne czyszczenie** - usuwanie pustych folderów po przeniesieniu plików
+- **Raport z operacji** - liczba przetworzonych/przeniesionych/pominiętych plików z listą błędów
 
 #### Komponenty:
 
-- `PhotoOrganizer.tsx` - komponent organizacji zdjęć
+- `PhotoOrganizer.tsx` - komponent organizacji zdjęć z modalem
 - `ExifService` (backend) - odczyt i przetwarzanie EXIF
 - `exif-api.ts` - komunikacja z API
 
@@ -240,6 +247,8 @@ Manager Plikow/
 
 - `GET /api/files/exif?path=<ścieżka>` - odczyt metadanych EXIF
 - `POST /api/files/organize-photos` - organizacja zdjęć według daty EXIF
+  - Body: `{ sourcePath, targetBaseDir, operation: 'move'|'copy', customFolder?: string }`
+  - Zwraca: `{ processed, moved, skipped, errors[] }`
 
 ### 🔄 7. Zarządzanie Filmami
 
@@ -289,15 +298,19 @@ Manager Plikow/
 
 **`POST /api/files/move`**
 
-- Przeniesienie pliku
+- Przeniesienie pliku lub folderu
 - Body: `{ sourcePath: string, targetPath: string }`
 - Tworzy katalog docelowy jeśli nie istnieje
+- Obsługuje rekurencyjne przenoszenie folderów z zawartością
 - Status: Zaimplementowane
 
 **`POST /api/files/copy`**
 
-- Skopiowanie pliku
+- Skopiowanie pliku lub folderu
 - Body: `{ sourcePath: string, targetPath: string }`
+- Tworzy katalog docelowy jeśli nie istnieje
+- Obsługuje rekurencyjne kopiowanie folderów z zawartością
+- Status: Zaimplementowane
 - Tworzy katalog docelowy jeśli nie istnieje
 - Status: Zaimplementowane
 
@@ -408,11 +421,15 @@ Manager Plikow/
 **`POST /api/files/organize-photos`**
 
 - Automatyczna organizacja zdjęć według daty EXIF
-- Body: `{ sourcePath: string, targetBaseDir: string }`
-- sourcePath: plik lub folder ze zdjęciami
-- targetBaseDir: katalog bazowy (np. `D:\DATA\Zdjecia`)
-- Tworzy strukturę: `targetBaseDir/YYYY/MM/YYYY-MM-DD_nazwa.jpg`
-- Zwraca: `OrganizePhotosResult` - liczniki i błędy
+- Body: `{ sourcePath: string, targetBaseDir: string, operation: 'move'|'copy', customFolder?: string }`
+  - sourcePath: plik lub folder ze zdjęciami
+  - targetBaseDir: katalog bazowy (np. `F:\Zdjecia`)
+  - operation: 'move' (przeniesienie) lub 'copy' (kopiowanie)
+  - customFolder: opcjonalna nazwa folderu zamiast numeru miesiąca
+- Tworzy strukturę: `targetBaseDir/YYYY/MM/YYYY-MM-DD_nazwa.jpg` 
+  - lub: `targetBaseDir/YYYY/customFolder/YYYY-MM-DD_nazwa.jpg` (gdy podano customFolder)
+- Automatycznie usuwa puste foldery źródłowe po operacji 'move'
+- Zwraca: `OrganizePhotosResult` - liczniki (processed, moved, skipped) i tablica błędów
 - Status: Zaimplementowane
 
 ### 🔄 Do implementacji

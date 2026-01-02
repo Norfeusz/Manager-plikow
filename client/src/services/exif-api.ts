@@ -13,10 +13,17 @@ export const exifApi = {
   },
   
   // Organizacja zdjęć według daty EXIF
-  organizePhotos: async (sourcePath: string, targetBaseDir: string): Promise<OrganizePhotosResult> => {
+  organizePhotos: async (
+    sourcePath: string, 
+    targetBaseDir: string, 
+    operation: 'move' | 'copy' = 'move',
+    customFolder?: string
+  ): Promise<OrganizePhotosResult> => {
     const response = await axios.post(`${API_BASE}/files/organize-photos`, {
       sourcePath,
-      targetBaseDir
+      targetBaseDir,
+      operation,
+      customFolder
     })
     return response.data
   }

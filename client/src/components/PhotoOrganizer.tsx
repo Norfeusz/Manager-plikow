@@ -10,7 +10,10 @@ interface PhotoOrganizerProps {
 
 export default function PhotoOrganizer({ selectedFiles, currentPath, onComplete }: PhotoOrganizerProps) {
   const [isOpen, setIsOpen] = useState(false)
-  const [targetDir, setTargetDir] = useState('D:\\DATA\\Zdjecia')
+  const [targetDir, setTargetDir] = useState('F:\\Zdjecia')
+  const [operation, setOperation] = useState<'move' | 'copy'>('move')
+  const [useCustomFolder, setUseCustomFolder] = useState(false)
+  const [customFolderName, setCustomFolderName] = useState('')
   const [isProcessing, setIsProcessing] = useState(false)
   const [result, setResult] = useState<any>(null)
 
@@ -27,7 +30,12 @@ export default function PhotoOrganizer({ selectedFiles, currentPath, onComplete 
       // Jeśli zaznaczono wiele plików, organizuj cały folder
       const sourcePath = selectedFiles.length > 1 ? currentPath : selectedFiles[0].path
       
-      const result = await exifApi.organizePhotos(sourcePath, targetDir)
+      const result = await exifApi.organizePhotos(
+        sourcePath, 
+        targetDir, 
+        operation,
+        useCustomFolder ? customFolderName : undefined
+      )
       setResult(result)
       
       if (result.errors.length === 0) {
@@ -68,9 +76,9 @@ export default function PhotoOrganizer({ selectedFiles, currentPath, onComplete 
             <div className="mb-4 p-4 bg-blue-50 rounded">
               <p className="text-sm text-gray-700 mb-2">
                 <strong>Wybrano:</strong> {photoFiles.length} zdjęć
-              </p>
+              </p>{useCustomFolder ? customFolderName || '[nazwa]' : 'MM'}
               <p className="text-sm text-gray-600">
-                Zdjęcia zostaną przeniesione do struktury:
+                Zdjęcia zostaną {operation === 'move' ? 'przeniesione' : 'skopiowane'} do struktury:
               </p>
               <code className="text-xs bg-white px-2 py-1 rounded block mt-2">
                 {targetDir}/YYYY/MM/YYYY-MM-DD_nazwa.jpg
@@ -79,15 +87,99 @@ export default function PhotoOrganizer({ selectedFiles, currentPath, onComplete 
 
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 mb-2">
+                Operacja:
+              </label>
+              <div className="flex gap-4">
+                <label className="flex items-center cursor-pointer">
+                  <input
+                    type="radio"
+                    value="move"
+                    checked={operation === 'move'}
+                    onChange={(e) => setOperation(e.target.value as 'move' | 'copy')}
+                    className="mr-2"
+                  />
+                  <span>Przenieś (usuń z oryginalnej lokalizacji)</span>
+                </label>
+                <label className="flex items-center cursor-pointer">
+                  <input
+                    type="radio"
+                    value="copy"
+                    checked={operation === 'copy'}
+                    onChange={(e) => setOperation(e.target.value as 'move' | 'copy')}
+                    className="mr-2"
+                  />
+                  <span>Kopiuj (zostaw oryginał)</span>
+                </label>
+              </div>
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
                 Katalog docelowy:
               </label>
+              <div className="flex gap-2 mb-2">
+                <button
+                  type="button"
+                  onClick={() => setTargetDir('F:\\Zdjecia')}
+                  className={`px-3 py-1 text-sm rounded-lg transition-colors ${
+                    targetDir === 'F:\\Zdjecia' 
+                      ? 'bg-purple-600 text-white' 
+                      : 'bg-gray-200 hover:bg-gray-300 text-gray-700'
+                  }`}
+                >
+                  💿 F:\Zdjecia
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTargetDir('D:\\DATA\\Zdjecia')}
+                  className={`px-3 py-1 text-sm rounded-lg transition-colors ${
+                    targetDir === 'D:\\DATA\\Zdjecia' 
+                      ? 'bg-purple-600 text-white' 
+                      : 'bg-gray-200 hover:bg-gray-300 text-gray-700'
+                  }`}
+                >
+                  📁 D:\DATA\Zdjecia
+                </button>
+              </div>
               <input
                 type="text"
                 value={targetDir}
                 onChange={(e) => setTargetDir(e.target.value)}
                 className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-500"
-                placeholder="D:\DATA\Zdjecia"
+                placeholder="F:\\Zdjecia lub inna lokalizacja"
               />
+              <p className="text-xs text-gray-500 mt-1">
+                Struktura: {targetDir}/{useCustomFolder ? (customFolderName || '[nazwa]') + '/' : ''}YYYY/{useCustomFolder ? '' : 'MM/'}YYYY-MM-DD_nazwa.jpg
+              </p>
+            </div>
+
+            <div className="mb-4">
+              <label className="flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={useCustomFolder}
+                  onChange={(e) => setUseCustomFolder(e.target.checked)}
+                  className="mr-2"
+                />
+                <span className="text-sm font-medium text-gray-700">
+                  Użyj niestandardowego folderu zamiast miesiąca
+                </span>
+              </label>
+              
+              {useCustomFolder && (
+                <div className="mt-2">
+                  <input
+                    type="text"
+                    value={customFolderName}
+                    onChange={(e) => setCustomFolderName(e.target.value)}
+                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-500"
+                    placeholder="Nazwa folderu (np. Wakacje, Rodzina, itp.)"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Struktura: {targetDir}/YYYY/{customFolderName || '[nazwa]'}/
+                  </p>
+                </div>
+              )}
             </div>
 
             {result && (

@@ -135,21 +135,27 @@ export class ExifService {
   /**
    * Generuje strukturę folderów YYYY/MM dla danego zdjęcia
    */
-  async generatePhotoPath(filePath: string, baseDir: string): Promise<string | null> {
+  async generatePhotoPath(filePath: string, baseDir: string, customFolder?: string): Promise<string | null> {
     const photoDate = await this.getPhotoDate(filePath)
     if (!photoDate) return null
 
     const year = photoDate.getFullYear()
-    const month = String(photoDate.getMonth() + 1).padStart(2, '0')
-
-    return path.join(baseDir, String(year), month)
+    
+    if (customFolder) {
+      // Użyj niestandardowego folderu zamiast miesiąca
+      return path.join(baseDir, String(year), customFolder)
+    } else {
+      // Standardowa struktura z miesiącem
+      const month = String(photoDate.getMonth() + 1).padStart(2, '0')
+      return path.join(baseDir, String(year), month)
+    }
   }
 
   /**
    * Generuje pełną ścieżkę docelową dla zdjęcia (folder + nazwa)
    */
-  async generateFullPhotoPath(filePath: string, baseDir: string): Promise<string | null> {
-    const folder = await this.generatePhotoPath(filePath, baseDir)
+  async generateFullPhotoPath(filePath: string, baseDir: string, customFolder?: string): Promise<string | null> {
+    const folder = await this.generatePhotoPath(filePath, baseDir, customFolder)
     const newName = await this.generatePhotoName(filePath)
 
     if (!folder || !newName) return null
