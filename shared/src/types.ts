@@ -46,3 +46,31 @@ export interface BrowseResponse {
   parentPath: string | null;
   items: FileMetadata[];
 }
+
+export interface ExifData {
+  dateTime?: string;
+  dateTimeOriginal?: string;
+  dateTimeDigitized?: string;
+  make?: string;
+  model?: string;
+  orientation?: number;
+  width?: number;
+  height?: number;
+  exposureTime?: number;
+  fNumber?: number;
+  iso?: number;
+  focalLength?: number;
+  lens?: string;
+  gps?: {
+    latitude?: number;
+    longitude?: number;
+    altitude?: number;
+  };
+}
+
+export interface OrganizePhotosResult {
+  processed: number;
+  moved: number;
+  skipped: number;
+  errors: string[];
+}

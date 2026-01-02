@@ -2,7 +2,7 @@
 
 **Status projektu:** W aktywnym rozwoju  
 **Ostatnia aktualizacja:** 2 stycznia 2026  
-**Wersja:** 0.3.0
+**Wersja:** 0.4.0
 
 ## Przegląd Projektu
 
@@ -218,14 +218,28 @@ Manager Plikow/
 - `DriveSelector.tsx` - zakładki i konfiguracja dysków
 - `drive-storage.ts` - zarządzanie konfiguracją w localStorage
 
-### 🔄 6. Zarządzanie Zdjęciami
+### ✅ 6. Zarządzanie Zdjęciami
 
-**Status:** Do implementacji
+**Status:** Zaimplementowane
 
-- Odczyt daty wykonania ze EXIF
-- Automatyczne nazewnictwo: `YYYY-MM-DD_oryginalna-nazwa.jpg`
-- Organizacja w strukturze: `Zdjecia/YYYY/MM/plik.jpg`
-- Wykrywanie duplikatów (porównanie wagi pliku)
+#### Funkcje:
+
+- **Odczyt metadanych EXIF** - data wykonania, aparat, ustawienia, GPS
+- **Automatyczne nazewnictwo** - `YYYY-MM-DD_oryginalna-nazwa.jpg`
+- **Organizacja w strukturze** - `Zdjecia/YYYY/MM/plik.jpg`
+- **Batch processing** - przetwarzanie wielu zdjęć jednocześnie
+- **Raport z operacji** - liczba przetworzonych/przeniesionych/pominiętych plików
+
+#### Komponenty:
+
+- `PhotoOrganizer.tsx` - komponent organizacji zdjęć
+- `ExifService` (backend) - odczyt i przetwarzanie EXIF
+- `exif-api.ts` - komunikacja z API
+
+#### Endpoint API:
+
+- `GET /api/files/exif?path=<ścieżka>` - odczyt metadanych EXIF
+- `POST /api/files/organize-photos` - organizacja zdjęć według daty EXIF
 
 ### 🔄 7. Zarządzanie Filmami
 
@@ -382,6 +396,25 @@ Manager Plikow/
 - Body: `{ fileId: string, newName: string }`
 - Status: Zaimplementowane
 
+### ✅ EXIF i Organizacja Zdjęć
+
+**`GET /api/files/exif?path=<ścieżka>`**
+
+- Odczyt metadanych EXIF ze zdjęcia
+- Query params: `path` - ścieżka do pliku
+- Zwraca: `ExifData` - data wykonania, aparat, ustawienia, GPS, itp.
+- Status: Zaimplementowane
+
+**`POST /api/files/organize-photos`**
+
+- Automatyczna organizacja zdjęć według daty EXIF
+- Body: `{ sourcePath: string, targetBaseDir: string }`
+- sourcePath: plik lub folder ze zdjęciami
+- targetBaseDir: katalog bazowy (np. `D:\DATA\Zdjecia`)
+- Tworzy strukturę: `targetBaseDir/YYYY/MM/YYYY-MM-DD_nazwa.jpg`
+- Zwraca: `OrganizePhotosResult` - liczniki i błędy
+- Status: Zaimplementowane
+
 ### 🔄 Do implementacji
 
 **`GET /api/files/metadata?path=<ścieżka>`**
@@ -474,8 +507,9 @@ GOOGLE_REDIRECT_URI=http://localhost:5000/api/auth/google/callback
 3. Utwórz OAuth 2.0 Client ID
 4. Dodaj authorized redirect URI: `http://localhost:5000/api/auth/google/callback`
 5. Skopiuj Client ID i Client Secret do pliku `.envRT=5000
-NODE_ENV=development
-```
+   NODE_ENV=development
+
+````
 
 ## Uruchomienie Projektu
 
@@ -484,7 +518,7 @@ NODE_ENV=development
 ```bash
 # W głównym katalogu (instaluje wszystkie workspace)
 npm install
-```
+````
 
 ### Development - Launcher (Zalecane)
 

@@ -4,10 +4,12 @@ import path from 'path'
 import fs from 'fs-extra'
 import os from 'os'
 import { FileService } from '../services/file-service'
+import { ExifService } from '../services/exif-service'
 import { BrowseRequest } from '../../../shared/src/types'
 
 const router = Router()
 const fileService = new FileService()
+const exifService = new ExifService()
 
 // Konfiguracja multer dla uploadu - najpierw do temp, potem przenosimy
 const upload = multer({ 
@@ -201,6 +203,99 @@ router.post('/rename', async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error('Błąd zmiany nazwy:', error)
     res.status(500).json({ error: error.message || 'Błąd podczas zmiany nazwy' })
+  }
+})
+
+// GET /api/files/exif?path=<ścieżka>
+router.get('/exif', async (req: Request, res: Response) => {
+  try {
+    const { path } = req.query
+    
+    if (!path || typeof path !== 'string') {
+      return res.status(400).json({ 
+        error: 'Brak wymaganego parametru: path' 
+      })
+    }
+    
+    const exifData = await exifService.readExif(path)
+    
+    if (!exifData) {
+      return res.status(404).json({ 
+        error: 'Brak danych EXIF lub plik nie jest zdjęciem' 
+      })
+    }
+    
+    res.json(exifData)
+  } catch (error: any) {
+    console.error('Błąd odczytu EXIF:', error)
+    res.status(500).json({ error: error.message || 'Błąd podczas odczytu EXIF' })
+  }
+})
+
+// POST /api/files/organize-photos
+router.post('/organize-photos', async (req: Request, res: Response) => {
+  try {
+    const { sourcePath, targetBaseDir } = req.body
+    
+    if (!sourcePath || !targetBaseDir) {
+      return res.status(400).json({ 
+        error: 'Brak wymaganych parametrów: sourcePath, targetBaseDir' 
+      })
+    }
+    
+    // Sprawdź czy to plik czy folder
+    const stats = await fs.stat(sourcePath)
+    const filesToProcess: string[] = []
+    
+    if (stats.isDirectory()) {
+      // Zbierz wszystkie zdjęcia z folderu
+      const files = await fs.readdir(sourcePath)
+      for (const file of files) {
+        const fullPath = path.join(sourcePath, file)
+        const fileStats = await fs.stat(fullPath)
+        if (fileStats.isFile()) {
+          filesToProcess.push(fullPath)
+        }
+      }
+    } else {
+      filesToProcess.push(sourcePath)
+    }
+    
+    const results = {
+      processed: 0,
+      moved: 0,
+      skipped: 0,
+      errors: [] as string[]
+    }
+    
+    for (const filePath of filesToProcess) {
+      results.processed++
+      
+      try {
+        const newPath = await exifService.generateFullPhotoPath(filePath, targetBaseDir)
+        
+        if (!newPath) {
+          results.skipped++
+          results.errors.push(`${path.basename(filePath)}: Brak danych EXIF`)
+          continue
+        }
+        
+        // Utwórz folder docelowy
+        await fs.ensureDir(path.dirname(newPath))
+        
+        // Przenieś plik
+        await fs.move(filePath, newPath, { overwrite: false })
+        results.moved++
+        
+      } catch (error: any) {
+        results.errors.push(`${path.basename(filePath)}: ${error.message}`)
+      }
+    }
+    
+    res.json(results)
+  } catch (error: any) {
+    console.error('Błąd organizowania zdjęć:', error)
+    res.status(500).json({ error: error.message || 'Błąd podczas organizowania zdjęć' })
   }
 })
 

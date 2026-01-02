@@ -3,6 +3,7 @@ import { FileMetadata, BrowseResponse } from '../../../../shared/src/types'
 import { fileApi } from '../services/api'
 import { googleDriveApi } from '../services/google-drive-api'
 import FileActions from './FileActions'
+import PhotoOrganizer from './PhotoOrganizer'
 
 interface FileBrowserProps {
   initialPath: string
@@ -131,12 +132,22 @@ export default function FileBrowser({ initialPath, onPathChange }: FileBrowserPr
 
       {/* Panel akcji na zaznaczonych plikach */}
       <div className="px-4 pt-4">
-        <FileActions
-          selectedFiles={selectedFiles}
-          currentPath={currentPath}
-          onActionComplete={() => loadDirectory(currentPath)}
-          onClearSelection={() => setSelectedFiles([])}
-        />
+        <div className="flex gap-2">
+          <FileActions
+            selectedFiles={selectedFiles}
+            currentPath={currentPath}
+            onActionComplete={() => loadDirectory(currentPath)}
+            onClearSelection={() => setSelectedFiles([])}
+          />
+          <PhotoOrganizer
+            selectedFiles={selectedFiles}
+            currentPath={currentPath}
+            onComplete={() => {
+              setSelectedFiles([])
+              loadDirectory(currentPath)
+            }}
+          />
+        </div>
       </div>
 
       {/* Zawartość */}
