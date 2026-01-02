@@ -17,13 +17,27 @@ export const exifApi = {
     sourcePath: string, 
     targetBaseDir: string, 
     operation: 'move' | 'copy' = 'move',
-    customFolder?: string
+    customFolder?: string,
+    assignToYear: boolean = true
   ): Promise<OrganizePhotosResult> => {
     const response = await axios.post(`${API_BASE}/files/organize-photos`, {
       sourcePath,
       targetBaseDir,
       operation,
-      customFolder
+      customFolder,
+      assignToYear
+    })
+    return response.data
+  },
+
+  // Proste przenoszenie zdjęć do folderu (z dodaniem daty do nazwy jeśli jest EXIF)
+  simpleMovePhotos: async (
+    sourcePath: string,
+    targetFolder: string
+  ): Promise<OrganizePhotosResult> => {
+    const response = await axios.post(`${API_BASE}/files/simple-move-photos`, {
+      sourcePath,
+      targetFolder
     })
     return response.data
   }

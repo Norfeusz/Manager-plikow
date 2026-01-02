@@ -106,21 +106,50 @@ export class ExifService {
   }
 
   /**
-   * Pobiera datę wykonania zdjęcia (priorytet: DateTimeOriginal > DateTimeDigitized > DateTime)
+   * Pobiera datę wykonania zdjęcia (priorytet: EXIF DateTimeOriginal > DateTimeDigitized > DateTime > data utworzenia pliku)
+   * Używa daty z właściwości pliku jako fallback gdy brak EXIF
    */
   async getPhotoDate(filePath: string): Promise<Date | null> {
     const exif = await this.readExif(filePath)
-    if (!exif) return null
+    
+    // Sprawdź dane EXIF
+    if (exif) {
+      const exifDate = exif.dateTimeOriginal || exif.dateTimeDigitized || exif.dateTime
+      if (exifDate) {
+        console.log(`Używam daty EXIF dla: ${path.basename(filePath)}`)
+        return exifDate
+      }
+    }
 
-    return exif.dateTimeOriginal || exif.dateTimeDigitized || exif.dateTime || null
+    // Fallback: użyj daty z właściwości pliku
+    try {
+      const stats = await fs.stat(filePath)
+      // mtime = data modyfikacji (zachowuje się przy kopiowaniu)
+      // birthtime = data utworzenia (zmienia się przy kopiowaniu)
+      // Preferuj mtime bo jest bardziej niezawodna
+      const fileDate = stats.mtime || stats.birthtime
+      console.log(`Brak EXIF - używam daty pliku (${stats.mtime ? 'modyfikacji' : 'utworzenia'}) dla: ${path.basename(filePath)}`)
+      return fileDate
+    } catch (error) {
+      console.error(`Nie można odczytać daty pliku ${filePath}:`, error)
+      return null
+    }
   }
 
   /**
    * Generuje nową nazwę pliku w formacie YYYY-MM-DD_oryginalna-nazwa.ext
+   * Jeśli brak daty, zwraca oryginalną nazwę
    */
-  async generatePhotoName(filePath: string): Promise<string | null> {
+  async generatePhotoName(filePath: string, keepOriginalIfNoDate: boolean = false): Promise<string | null> {
     const photoDate = await this.getPhotoDate(filePath)
-    if (!photoDate) return null
+    
+    if (!photoDate) {
+      if (keepOriginalIfNoDate) {
+        // Zachowaj oryginalną nazwę pliku
+        return path.basename(filePath)
+      }
+      return null
+    }
 
     const year = photoDate.getFullYear()
     const month = String(photoDate.getMonth() + 1).padStart(2, '0')
@@ -133,30 +162,60 @@ export class ExifService {
   }
 
   /**
-   * Generuje strukturę folderów YYYY/MM dla danego zdjęcia
+   * Generuje strukturę folderów dla danego zdjęcia
+   * @param filePath - ścieżka do pliku
+   * @param baseDir - katalog bazowy
+   * @param customFolder - niestandardowa nazwa folderu (opcjonalnie)
+   * @param assignToYear - czy przypisywać do roku (tylko dla customFolder)
    */
-  async generatePhotoPath(filePath: string, baseDir: string, customFolder?: string): Promise<string | null> {
+  async generatePhotoPath(
+    filePath: string, 
+    baseDir: string, 
+    customFolder?: string, 
+    assignToYear: boolean = true
+  ): Promise<string | null> {
     const photoDate = await this.getPhotoDate(filePath)
-    if (!photoDate) return null
+
+    // Tryb niestandardowego folderu
+    if (customFolder) {
+      if (assignToYear && photoDate) {
+        // Przypisz do roku: baseDir/YYYY/customFolder
+        const year = photoDate.getFullYear()
+        return path.join(baseDir, String(year), customFolder)
+      } else if (!assignToYear) {
+        // Nie przypisuj do roku: baseDir/customFolder
+        return path.join(baseDir, customFolder)
+      } else if (assignToYear && !photoDate) {
+        // Brak daty, ale wybrano przypisanie do roku - użyj folderu "Brak daty"
+        return path.join(baseDir, 'Brak daty', customFolder)
+      }
+    }
+
+    // Tryb standardowy (YYYY/MM)
+    if (!photoDate) {
+      // Brak daty w trybie standardowym - zwróć null (błąd)
+      return null
+    }
 
     const year = photoDate.getFullYear()
-    
-    if (customFolder) {
-      // Użyj niestandardowego folderu zamiast miesiąca
-      return path.join(baseDir, String(year), customFolder)
-    } else {
-      // Standardowa struktura z miesiącem
-      const month = String(photoDate.getMonth() + 1).padStart(2, '0')
-      return path.join(baseDir, String(year), month)
-    }
+    const month = String(photoDate.getMonth() + 1).padStart(2, '0')
+    return path.join(baseDir, String(year), month)
   }
 
   /**
    * Generuje pełną ścieżkę docelową dla zdjęcia (folder + nazwa)
    */
-  async generateFullPhotoPath(filePath: string, baseDir: string, customFolder?: string): Promise<string | null> {
-    const folder = await this.generatePhotoPath(filePath, baseDir, customFolder)
-    const newName = await this.generatePhotoName(filePath)
+  async generateFullPhotoPath(
+    filePath: string, 
+    baseDir: string, 
+    customFolder?: string, 
+    assignToYear: boolean = true
+  ): Promise<string | null> {
+    const folder = await this.generatePhotoPath(filePath, baseDir, customFolder, assignToYear)
+    
+    // Zachowaj oryginalną nazwę jeśli customFolder bez assignToYear
+    const keepOriginalName = customFolder && !assignToYear
+    const newName = await this.generatePhotoName(filePath, keepOriginalName)
 
     if (!folder || !newName) return null
 

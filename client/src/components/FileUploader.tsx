@@ -1,5 +1,7 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { fileApi } from '../services/api'
+import PhotoOrganizer from './PhotoOrganizer'
+import { FileMetadata } from '../../../../shared/src/types'
 
 interface FileUploaderProps {
   currentPath: string
@@ -10,6 +12,8 @@ export default function FileUploader({ currentPath, onUploadComplete }: FileUplo
   const [isDragging, setIsDragging] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [files, setFiles] = useState<File[]>([])
+  const [uploadedPhotos, setUploadedPhotos] = useState<FileMetadata[]>([])
+  const [showPhotoOrganizer, setShowPhotoOrganizer] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -43,9 +47,34 @@ export default function FileUploader({ currentPath, onUploadComplete }: FileUplo
     setUploading(true)
     try {
       await fileApi.uploadFiles(files, currentPath)
+      
+      // Sprawdź czy przesłane zostały zdjęcia
+      const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.heic', '.raw']
+      const uploadedImageFiles = files.filter(file => {
+        const ext = file.name.toLowerCase().substring(file.name.lastIndexOf('.'))
+        return imageExtensions.includes(ext)
+      })
+      
+      // Jeśli przesłano zdjęcia, przygotuj metadata i otwórz organizator
+      if (uploadedImageFiles.length > 0) {
+        const photoMetadata: FileMetadata[] = uploadedImageFiles.map(file => ({
+          name: file.name,
+          path: `${currentPath}\\${file.name}`,
+          size: file.size,
+          createdAt: new Date().toISOString(),
+          modifiedAt: new Date().toISOString(),
+          type: 'image' as const,
+          isDirectory: false
+        }))
+        
+        setUploadedPhotos(photoMetadata)
+        setShowPhotoOrganizer(true)
+      } else {
+        alert(`Przesłano ${files.length} plik(ów)`)
+      }
+      
       setFiles([])
       onUploadComplete()
-      alert(`Przesłano ${files.length} plik(ów)`)
     } catch (error: any) {
       alert(`Błąd uploadu: ${error.message}`)
     } finally {
@@ -65,6 +94,23 @@ export default function FileUploader({ currentPath, onUploadComplete }: FileUplo
     const sizes = ['B', 'KB', 'MB', 'GB']
     const i = Math.floor(Math.log(bytes) / Math.log(k))
     return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i]
+  }
+
+  // Sprawdź czy wybrane pliki zawierają zdjęcia
+  const hasPhotos = () => {
+    const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.heic', '.raw']
+    return files.some(file => {
+      const ext = file.name.toLowerCase().substring(file.name.lastIndexOf('.'))
+      return imageExtensions.includes(ext)
+    })
+  }
+
+  const photoCount = () => {
+    const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.heic', '.raw']
+    return files.filter(file => {
+      const ext = file.name.toLowerCase().substring(file.name.lastIndexOf('.'))
+      return imageExtensions.includes(ext)
+    }).length
   }
 
   return (
@@ -127,13 +173,29 @@ export default function FileUploader({ currentPath, onUploadComplete }: FileUplo
             ))}
           </div>
           
+          {hasPhotos() && (
+            <div className="mt-2 p-2 bg-purple-50 border border-purple-200 rounded">
+              <p className="text-sm text-purple-700">
+                📸 Wykryto {photoCount()} zdjęć - po przesłaniu automatycznie otworzy się organizator
+              </p>
+            </div>
+          )}
+          
           <div className="mt-4 flex gap-2">
             <button
               onClick={handleUpload}
               disabled={uploading}
-              className="flex-1 px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 disabled:bg-gray-400"
+              className={`flex-1 px-4 py-2 text-white rounded disabled:bg-gray-400 ${
+                hasPhotos() 
+                  ? 'bg-purple-600 hover:bg-purple-700' 
+                  : 'bg-green-500 hover:bg-green-600'
+              }`}
             >
-              {uploading ? 'Przesyłanie...' : `Prześlij ${files.length} plik(ów)`}
+              {uploading ? 'Przesyłanie...' : (
+                hasPhotos() 
+                  ? `📸 Prześlij i organizuj ${photoCount()} zdjęć` 
+                  : `Prześlij ${files.length} plik(ów)`
+              )}
             </button>
           </div>
         </div>
@@ -142,6 +204,20 @@ export default function FileUploader({ currentPath, onUploadComplete }: FileUplo
       <p className="text-xs text-gray-500 mt-4">
         Katalog docelowy: <span className="font-mono">{currentPath}</span>
       </p>
+      
+      {/* Automatyczne otwarcie organizatora zdjęć */}
+      {showPhotoOrganizer && uploadedPhotos.length > 0 && (
+        <PhotoOrganizer
+          selectedFiles={uploadedPhotos}
+          currentPath={currentPath}
+          autoOpen={true}
+          onComplete={() => {
+            setShowPhotoOrganizer(false)
+            setUploadedPhotos([])
+            onUploadComplete()
+          }}
+        />
+      )}
     </div>
   )
 }

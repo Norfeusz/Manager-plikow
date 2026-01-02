@@ -109,8 +109,26 @@ router.post('/upload', upload.array('files'), async (req: Request, res: Response
       return res.status(400).json({ error: 'Brak katalogu docelowego' })
     }
     
+    // Sprawdź czy targetDir nie jest dyskiem (np. F:\)
+    if (targetDir.match(/^[A-Z]:\\$/i)) {
+      return res.status(400).json({ 
+        error: 'Nie można uploadować bezpośrednio do głównego katalogu dysku. Wybierz folder na dysku.' 
+      })
+    }
+    
     // Upewnij się że katalog docelowy istnieje
     await fs.ensureDir(targetDir)
+    
+    // Odczytaj oryginalne daty plików
+    let fileDates: any = {}
+    if (req.body.fileDates) {
+      try {
+        const dates = JSON.parse(req.body.fileDates)
+        fileDates = Object.fromEntries(dates.map((d: any) => [d.name, d.lastModified]))
+      } catch (e) {
+        console.error('Błąd parsowania dat plików:', e)
+      }
+    }
     
     const uploadedFiles = []
     
@@ -118,6 +136,17 @@ router.post('/upload', upload.array('files'), async (req: Request, res: Response
     for (const file of files) {
       const targetPath = path.join(targetDir, file.originalname)
       await fs.move(file.path, targetPath, { overwrite: true })
+      
+      // Przywróć oryginalną datę modyfikacji jeśli dostępna
+      if (fileDates[file.originalname]) {
+        const originalDate = new Date(fileDates[file.originalname])
+        try {
+          await fs.utimes(targetPath, originalDate, originalDate)
+          console.log(`Przywrócono datę dla ${file.originalname}: ${originalDate.toISOString()}`)
+        } catch (error) {
+          console.error(`Nie można ustawić daty dla ${file.originalname}:`, error)
+        }
+      }
       
       uploadedFiles.push({
         name: file.originalname,
@@ -257,7 +286,7 @@ router.get('/exif', async (req: Request, res: Response) => {
 // POST /api/files/organize-photos
 router.post('/organize-photos', async (req: Request, res: Response) => {
   try {
-    const { sourcePath, targetBaseDir, operation = 'move', customFolder } = req.body
+    const { sourcePath, targetBaseDir, operation = 'move', customFolder, assignToYear = true } = req.body
     
     if (!sourcePath || !targetBaseDir) {
       return res.status(400).json({ 
@@ -303,16 +332,54 @@ router.post('/organize-photos', async (req: Request, res: Response) => {
       results.processed++
       
       try {
-        const newPath = await exifService.generateFullPhotoPath(filePath, targetBaseDir, customFolder)
+        let newPath = await exifService.generateFullPhotoPath(filePath, targetBaseDir, customFolder, assignToYear)
         
         if (!newPath) {
           results.skipped++
-          results.errors.push(`${path.basename(filePath)}: Brak danych EXIF`)
+          if (!customFolder) {
+            // Tryb standardowy bez daty - sugeruj użycie niestandardowego folderu
+            results.errors.push(`${path.basename(filePath)}: Brak danych EXIF. Użyj niestandardowego folderu z opcją "Nie przypisuj do roku" lub dodaj do folderu "Brak daty"`)
+          } else {
+            results.errors.push(`${path.basename(filePath)}: Brak danych EXIF`)
+          }
           continue
         }
         
         // Utwórz folder docelowy
         await fs.ensureDir(path.dirname(newPath))
+        
+        // Sprawdź czy plik już istnieje w folderze docelowym
+        if (await fs.pathExists(newPath)) {
+          // Plik o tej nazwie już istnieje - sprawdź rozmiar
+          const sourceStats = await fs.stat(filePath)
+          const targetStats = await fs.stat(newPath)
+          
+          if (sourceStats.size === targetStats.size) {
+            // To jest duplikat (taka sama nazwa i rozmiar) - pomiń
+            console.log(`Duplikat: ${path.basename(filePath)} (${sourceStats.size} bajtów)`)
+            results.errors.push(`${path.basename(filePath)}: Duplikat (taki sam plik już istnieje)`)
+            results.skipped++
+            
+            // Jeśli to operacja move, usuń źródłowy plik (bo to duplikat)
+            if (operation === 'move') {
+              await fs.remove(filePath)
+            }
+            continue
+          }
+          
+          // Rozmiar inny - dodaj sufiks (_1, _2, itd.)
+          const ext = path.extname(newPath)
+          const nameWithoutExt = newPath.slice(0, -ext.length)
+          let counter = 1
+          let newPathWithSuffix = `${nameWithoutExt}_${counter}${ext}`
+          
+          while (await fs.pathExists(newPathWithSuffix)) {
+            counter++
+            newPathWithSuffix = `${nameWithoutExt}_${counter}${ext}`
+          }
+          
+          newPath = newPathWithSuffix
+        }
         
         // Przenieś lub kopiuj plik
         if (operation === 'move') {
@@ -338,6 +405,112 @@ router.post('/organize-photos', async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error('Błąd organizowania zdjęć:', error)
     res.status(500).json({ error: error.message || 'Błąd podczas organizowania zdjęć' })
+  }
+})
+
+// POST /api/files/simple-move-photos - proste przeniesienie zdjęć z dodaniem daty do nazwy
+router.post('/simple-move-photos', async (req: Request, res: Response) => {
+  try {
+    const { sourcePath, targetFolder } = req.body
+    
+    if (!sourcePath || !targetFolder) {
+      return res.status(400).json({ 
+        error: 'Brak wymaganych parametrów: sourcePath, targetFolder' 
+      })
+    }
+    
+    // Sprawdź czy to plik czy folder
+    const stats = await fs.stat(sourcePath)
+    const filesToProcess: string[] = []
+    const sourceDirs = new Set<string>()
+    
+    if (stats.isDirectory()) {
+      const files = await fs.readdir(sourcePath)
+      for (const file of files) {
+        const fullPath = path.join(sourcePath, file)
+        const fileStats = await fs.stat(fullPath)
+        if (fileStats.isFile()) {
+          filesToProcess.push(fullPath)
+          sourceDirs.add(path.dirname(fullPath))
+        }
+      }
+    } else {
+      filesToProcess.push(sourcePath)
+      sourceDirs.add(path.dirname(sourcePath))
+    }
+    
+    const results = {
+      processed: 0,
+      moved: 0,
+      skipped: 0,
+      errors: [] as string[]
+    }
+    
+    // Upewnij się że folder docelowy istnieje
+    await fs.ensureDir(targetFolder)
+    
+    for (const filePath of filesToProcess) {
+      results.processed++
+      
+      try {
+        // Spróbuj wygenerować nazwę z datą
+        const newName = await exifService.generatePhotoName(filePath, true)
+        
+        if (!newName) {
+          results.errors.push(`${path.basename(filePath)}: Błąd generowania nazwy`)
+          results.skipped++
+          continue
+        }
+        
+        let targetPath = path.join(targetFolder, newName)
+        
+        // Sprawdź czy plik już istnieje w folderze docelowym
+        if (await fs.pathExists(targetPath)) {
+          // Plik o tej nazwie już istnieje - sprawdź rozmiar
+          const sourceStats = await fs.stat(filePath)
+          const targetStats = await fs.stat(targetPath)
+          
+          if (sourceStats.size === targetStats.size) {
+            // To jest duplikat (taka sama nazwa i rozmiar) - pomiń i usuń źródło
+            console.log(`Duplikat: ${path.basename(filePath)} (${sourceStats.size} bajtów)`)
+            results.errors.push(`${path.basename(filePath)}: Duplikat (taki sam plik już istnieje)`)
+            results.skipped++
+            await fs.remove(filePath)
+            continue
+          }
+          
+          // Rozmiar inny - dodaj sufiks (_1, _2, itd.)
+          const ext = path.extname(targetPath)
+          const nameWithoutExt = targetPath.slice(0, -ext.length)
+          let counter = 1
+          let targetPathWithSuffix = `${nameWithoutExt}_${counter}${ext}`
+          
+          while (await fs.pathExists(targetPathWithSuffix)) {
+            counter++
+            targetPathWithSuffix = `${nameWithoutExt}_${counter}${ext}`
+          }
+          
+          targetPath = targetPathWithSuffix
+        }
+        
+        // Przenieś plik
+        await fs.move(filePath, targetPath, { overwrite: false })
+        results.moved++
+        
+      } catch (error: any) {
+        results.errors.push(`${path.basename(filePath)}: ${error.message}`)
+      }
+    }
+    
+    // Usuń puste foldery źródłowe
+    for (const dir of sourceDirs) {
+      await removeEmptyDirectories(dir)
+    }
+    
+    res.json(results)
+  } catch (error: any) {
+    console.error('Błąd przenoszenia zdjęć:', error)
+    res.status(500).json({ error: error.message || 'Błąd podczas przenoszenia zdjęć' })
   }
 })
 

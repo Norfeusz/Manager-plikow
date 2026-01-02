@@ -136,6 +136,18 @@ export default function FileBrowser({ initialPath, onPathChange }: FileBrowserPr
         </div>
       </div>
 
+      {/* Informacja o organizacji zdjęć */}
+      {data && data.items.some(item => item.type === 'image') && (
+        <div className="px-4 pt-4">
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+            <p className="text-sm text-blue-800">
+              💡 <strong>Wskazówka:</strong> Użyj przycisku "📸 Organizuj zdjęcia z tego folderu" aby przenieść zdjęcia 
+              zachowując ich oryginalne daty utworzenia (z karty SD, telefonu, dysku itp.)
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Panel akcji na zaznaczonych plikach */}
       <div className="px-4 pt-4">
         <div className="flex gap-2 items-center">
@@ -159,6 +171,21 @@ export default function FileBrowser({ initialPath, onPathChange }: FileBrowserPr
                 </button>
               )}
             </div>
+          )}
+          
+          {/* Przycisk organizacji wszystkich zdjęć z folderu */}
+          {data && data.items.some(item => item.type === 'image') && selectedFiles.length === 0 && (
+            <button
+              onClick={() => {
+                // Zaznacz wszystkie zdjęcia w folderze
+                const allPhotos = data.items.filter(item => item.type === 'image')
+                setSelectedFiles(allPhotos)
+              }}
+              className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors"
+              title="Organizuj wszystkie zdjęcia z tego folderu"
+            >
+              📸 Organizuj zdjęcia z tego folderu
+            </button>
           )}
           
           {/* Akcje na zaznaczonych plikach */}
@@ -241,11 +268,23 @@ export default function FileBrowser({ initialPath, onPathChange }: FileBrowserPr
                         />
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center">
-                          <span className="text-xl mr-2">{getFileIcon(item)}</span>
-                          <span className={`text-sm ${item.isDirectory ? 'font-medium text-blue-600' : 'text-gray-900'}`}>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xl">{getFileIcon(item)}</span>
+                          <span className={`text-sm flex-1 ${item.isDirectory ? 'font-medium text-blue-600' : 'text-gray-900'}`}>
                             {item.name}
                           </span>
+                          {item.isDirectory && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleItemDoubleClick(item)
+                              }}
+                              className="ml-2 px-2 py-1 bg-blue-500 hover:bg-blue-600 text-white text-xs rounded transition-colors"
+                              title="Otwórz folder"
+                            >
+                              ➜ Wejdź
+                            </button>
+                          )}
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">

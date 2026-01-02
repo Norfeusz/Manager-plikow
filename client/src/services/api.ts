@@ -33,6 +33,13 @@ export const fileApi = {
     })
     formData.append('targetDir', targetDir)
     
+    // Przekaż oryginalne daty modyfikacji plików
+    const fileDates = files.map(file => ({
+      name: file.name,
+      lastModified: file.lastModified
+    }))
+    formData.append('fileDates', JSON.stringify(fileDates))
+    
     const response = await fetch(`${API_BASE}/files/upload`, {
       method: 'POST',
       body: formData

@@ -2,7 +2,7 @@
 
 **Status projektu:** W aktywnym rozwoju  
 **Ostatnia aktualizacja:** 2 stycznia 2026  
-**Wersja:** 0.5.0
+**Wersja:** 0.5.1
 
 ## Przegląd Projektu
 
@@ -231,11 +231,21 @@ Manager Plikow/
 - **Organizacja w strukturze** - `Zdjecia/YYYY/MM/plik.jpg` lub `Zdjecia/YYYY/NazwaWlasna/plik.jpg`
 - **Wybór operacji** - przeniesienie (move) lub kopiowanie (copy) plików
 - **Niestandardowe foldery** - możliwość organizacji w folderach o własnej nazwie zamiast numerów miesięcy
+  - Opcja "Przypisz do roku" - folder w strukturze YYYY/NazwaFolderu lub bezpośrednio NazwaFolderu
+  - Dla zdjęć bez daty: folder "Brak daty/NazwaFolderu"
 - **Szybki wybór lokalizacji** - przyciski dla popularnych lokalizacji (F:\Zdjecia, D:\DATA\Zdjecia)
+- **Proste przeniesienie** - możliwość przeniesienia zdjęć do wybranego folderu bez tworzenia struktury (tylko zmiana nazwy na YYYY-MM-DD_nazwa)
 - **Domyślna lokalizacja** - F:\Zdjecia (Dysk Sony)
 - **Batch processing** - przetwarzanie wielu zdjęć jednocześnie
 - **Automatyczne czyszczenie** - usuwanie pustych folderów po przeniesieniu plików
+- **Wykrywanie duplikatów** - porównanie rozmiaru pliku (wagi)
+  - Jeśli plik o identycznej nazwie i rozmiarze już istnieje - oznaczenie jako duplikat, usunięcie źródła
+  - Jeśli plik o identycznej nazwie ale innym rozmiarze - dodanie sufiksu _1, _2, itd.
+- **Data z właściwości pliku** - fallback na datę modyfikacji (mtime) gdy brak EXIF
+  - Priorytet: EXIF DateTimeOriginal → DateTimeDigitized → DateTime → mtime → birthtime
+  - Zachowanie oryginalnych dat podczas uploadu przez File.lastModified i fs.utimes()
 - **Raport z operacji** - liczba przetworzonych/przeniesionych/pominiętych plików z listą błędów
+- **Automatyczne otwieranie** - modal organizacji otwiera się automatycznie po uploaderze plików
 
 #### Komponenty:
 
@@ -247,8 +257,14 @@ Manager Plikow/
 
 - `GET /api/files/exif?path=<ścieżka>` - odczyt metadanych EXIF
 - `POST /api/files/organize-photos` - organizacja zdjęć według daty EXIF
-  - Body: `{ sourcePath, targetBaseDir, operation: 'move'|'copy', customFolder?: string }`
+  - Body: `{ sourcePath, targetBaseDir, operation: 'move'|'copy', customFolder?: string, assignToYear?: boolean }`
   - Zwraca: `{ processed, moved, skipped, errors[] }`
+  - Automatyczne wykrywanie duplikatów (porównanie rozmiaru)
+  - Automatyczne usuwanie pustych folderów źródłowych po operacji move
+- `POST /api/files/simple-move-photos` - proste przeniesienie zdjęć do folderu
+  - Body: `{ sourcePath, targetFolder }`
+  - Zmienia tylko nazwę na YYYY-MM-DD_nazwa, nie tworzy struktury folderów
+  - Automatyczne wykrywanie duplikatów
 
 ### 🔄 7. Zarządzanie Filmami
 
@@ -258,15 +274,15 @@ Manager Plikow/
 - Odczyt metadanych video
 - Struktura: `Filmy/YYYY/MM/plik.mp4`
 
-### 🔄 8. Wykrywanie Duplikatów
+### ✅ 8. Wykrywanie Duplikatów
 
-**Status:** Do implementacji
+**Status:** Zaimplementowane w organizacji zdjęć
 
 - Porównanie nazwy pliku
-- Porównanie rozmiaru pliku (wagi)
-- Porównanie hash pliku (opcjonalnie)
-- Jeśli identyczne - oznaczenie jako duplikat
-- Opcje: usunięcie / przeniesienie do folderu duplikatów
+- Porównanie rozmiaru pliku (wagi w bajtach)
+- Jeśli identyczne (nazwa + rozmiar) - oznaczenie jako duplikat, pominięcie przenoszenia
+- Jeśli różny rozmiar - dodanie sufiksu (_1, _2, itd.) i przeniesienie
+- Automatyczne usuwanie plików źródłowych będących duplikatami (przy operacji move)
 
 ## API Endpointy
 
@@ -292,7 +308,9 @@ Manager Plikow/
 - Body: `multipart/form-data`
   - `files` - tablica plików
   - `targetDir` - katalog docelowy
+  - `fileDates` - JSON string z oryginalnymi datami modyfikacji plików [{name, lastModified}]
 - Multer zapisuje do temp, następnie przenosi do `targetDir`
+- Przywraca oryginalne daty modyfikacji za pomocą fs.utimes()
 - Zwraca: lista przesłanych plików z metadanymi
 - Status: Zaimplementowane
 
@@ -421,15 +439,35 @@ Manager Plikow/
 **`POST /api/files/organize-photos`**
 
 - Automatyczna organizacja zdjęć według daty EXIF
-- Body: `{ sourcePath: string, targetBaseDir: string, operation: 'move'|'copy', customFolder?: string }`
+- Body: `{ sourcePath: string, targetBaseDir: string, operation: 'move'|'copy', customFolder?: string, assignToYear?: boolean }`
   - sourcePath: plik lub folder ze zdjęciami
   - targetBaseDir: katalog bazowy (np. `F:\Zdjecia`)
   - operation: 'move' (przeniesienie) lub 'copy' (kopiowanie)
   - customFolder: opcjonalna nazwa folderu zamiast numeru miesiąca
-- Tworzy strukturę: `targetBaseDir/YYYY/MM/YYYY-MM-DD_nazwa.jpg` 
-  - lub: `targetBaseDir/YYYY/customFolder/YYYY-MM-DD_nazwa.jpg` (gdy podano customFolder)
-- Automatycznie usuwa puste foldery źródłowe po operacji 'move'
+  - assignToYear: czy przypisać folder do roku (domyślnie true)
+- Tworzy strukturę:
+  - Standardowa: `targetBaseDir/YYYY/MM/YYYY-MM-DD_nazwa.jpg`
+  - Z customFolder i assignToYear=true: `targetBaseDir/YYYY/customFolder/YYYY-MM-DD_nazwa.jpg`
+  - Z customFolder i assignToYear=false: `targetBaseDir/customFolder/YYYY-MM-DD_nazwa.jpg`
+  - Bez daty EXIF: `targetBaseDir/Brak daty/customFolder/oryginalna_nazwa.jpg`
+- **Wykrywanie duplikatów:**
+  - Porównuje rozmiar pliku (fs.stat().size)
+  - Jeśli nazwa i rozmiar identyczne → duplikat → pominięcie + usunięcie źródła (move)
+  - Jeśli nazwa identyczna ale rozmiar różny → dodanie sufiksu _1, _2, itd.
+- Automatycznie usuwa puste foldery źródłowe po operacji 'move' (rekursywnie w górę)
 - Zwraca: `OrganizePhotosResult` - liczniki (processed, moved, skipped) i tablica błędów
+- Status: Zaimplementowane
+
+**`POST /api/files/simple-move-photos`**
+
+- Proste przeniesienie zdjęć do wybranego folderu (bez tworzenia struktury YYYY/MM)
+- Body: `{ sourcePath: string, targetFolder: string }`
+  - sourcePath: plik lub folder ze zdjęciami
+  - targetFolder: docelowy folder
+- Zmienia nazwy na format YYYY-MM-DD_nazwa.jpg (z daty EXIF lub mtime)
+- **Wykrywanie duplikatów:** jak w organize-photos
+- Automatycznie usuwa puste foldery źródłowe
+- Zwraca: `OrganizePhotosResult`
 - Status: Zaimplementowane
 
 ### 🔄 Do implementacji
