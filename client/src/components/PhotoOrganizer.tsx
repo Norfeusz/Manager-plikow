@@ -77,15 +77,33 @@ export default function PhotoOrganizer({ selectedFiles, currentPath, onComplete,
 
     setIsProcessing(true)
     try {
-      const sourcePath = selectedFiles.length > 1 ? currentPath : selectedFiles[0].path
+      const allResults = {
+        processed: 0,
+        moved: 0,
+        skipped: 0,
+        errors: [] as string[]
+      }
+
+      // Przenieś każdy zaznaczony plik osobno
+      for (const file of selectedFiles) {
+        try {
+          const result = await exifApi.simpleMovePhotos(
+            file.path,
+            simpleTargetPath
+          )
+          
+          allResults.processed += result.processed
+          allResults.moved += result.moved
+          allResults.skipped += result.skipped
+          allResults.errors.push(...result.errors)
+        } catch (error: any) {
+          allResults.errors.push(`${file.name}: ${error.message}`)
+        }
+      }
       
-      const result = await exifApi.simpleMovePhotos(
-        sourcePath,
-        simpleTargetPath
-      )
-      setResult(result)
+      setResult(allResults)
       
-      if (result.errors.length === 0) {
+      if (allResults.errors.length === 0) {
         setTimeout(() => {
           setShowSimpleMoveModal(false)
           setIsOpen(false)
@@ -110,19 +128,36 @@ export default function PhotoOrganizer({ selectedFiles, currentPath, onComplete,
     setResult(null)
 
     try {
-      // Jeśli zaznaczono wiele plików, organizuj cały folder
-      const sourcePath = selectedFiles.length > 1 ? currentPath : selectedFiles[0].path
+      const allResults = {
+        processed: 0,
+        moved: 0,
+        skipped: 0,
+        errors: [] as string[]
+      }
+
+      // Organizuj każdy zaznaczony plik osobno
+      for (const file of selectedFiles) {
+        try {
+          const result = await exifApi.organizePhotos(
+            file.path, 
+            targetDir, 
+            operation,
+            useCustomFolder ? customFolderName : undefined,
+            useCustomFolder ? assignToYear : true
+          )
+          
+          allResults.processed += result.processed
+          allResults.moved += result.moved
+          allResults.skipped += result.skipped
+          allResults.errors.push(...result.errors)
+        } catch (error: any) {
+          allResults.errors.push(`${file.name}: ${error.message}`)
+        }
+      }
       
-      const result = await exifApi.organizePhotos(
-        sourcePath, 
-        targetDir, 
-        operation,
-        useCustomFolder ? customFolderName : undefined,
-        useCustomFolder ? assignToYear : true
-      )
-      setResult(result)
+      setResult(allResults)
       
-      if (result.errors.length === 0) {
+      if (allResults.errors.length === 0) {
         setTimeout(() => {
           setIsOpen(false)
           onComplete()

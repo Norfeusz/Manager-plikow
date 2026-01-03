@@ -1,5 +1,6 @@
 import { google } from 'googleapis'
 import { OAuth2Client } from 'google-auth-library'
+import fs from 'fs'
 
 export class GoogleDriveService {
   private oauth2Client: OAuth2Client
@@ -183,7 +184,6 @@ export class GoogleDriveService {
   // Pobierz plik (download)
   async downloadFile(fileId: string, destPath: string) {
     const drive = google.drive({ version: 'v3', auth: this.oauth2Client })
-    const fs = require('fs')
 
     const dest = fs.createWriteStream(destPath)
 

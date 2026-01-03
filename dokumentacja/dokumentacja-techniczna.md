@@ -1,8 +1,8 @@
 # Dokumentacja Techniczna - Manager Plików
 
 **Status projektu:** W aktywnym rozwoju  
-**Ostatnia aktualizacja:** 2 stycznia 2026  
-**Wersja:** 0.5.1
+**Ostatnia aktualizacja:** 3 stycznia 2026  
+**Wersja:** 0.5.2
 
 ## Przegląd Projektu
 
@@ -227,22 +227,31 @@ Manager Plikow/
 #### Funkcje:
 
 - **Odczyt metadanych EXIF** - data wykonania, aparat, ustawienia, GPS
+  - **Obsługa Google Drive** - tymczasowe pobieranie plików z Google Drive do odczytu EXIF
 - **Automatyczne nazewnictwo** - `YYYY-MM-DD_oryginalna-nazwa.jpg`
 - **Organizacja w strukturze** - `Zdjecia/YYYY/MM/plik.jpg` lub `Zdjecia/YYYY/NazwaWlasna/plik.jpg`
 - **Wybór operacji** - przeniesienie (move) lub kopiowanie (copy) plików
+- **Obsługa wielu źródeł**:
+  - **Dyski lokalne** - standardowe operacje fs.move/fs.copy
+  - **Google Drive → Dysk lokalny** - pobieranie plików przez Google Drive API
+    - Automatyczne wykrywanie fileId Google Drive
+    - Pobieranie pliku do docelowej lokalizacji
+    - Usuwanie z Google Drive przy operacji "move"
+    - Wykrywanie i filtrowanie folderów (tylko pliki)
 - **Niestandardowe foldery** - możliwość organizacji w folderach o własnej nazwie zamiast numerów miesięcy
   - Opcja "Przypisz do roku" - folder w strukturze YYYY/NazwaFolderu lub bezpośrednio NazwaFolderu
   - Dla zdjęć bez daty: folder "Brak daty/NazwaFolderu"
 - **Szybki wybór lokalizacji** - przyciski dla popularnych lokalizacji (F:\Zdjecia, D:\DATA\Zdjecia)
 - **Proste przeniesienie** - możliwość przeniesienia zdjęć do wybranego folderu bez tworzenia struktury (tylko zmiana nazwy na YYYY-MM-DD_nazwa)
 - **Domyślna lokalizacja** - F:\Zdjecia (Dysk Sony)
-- **Batch processing** - przetwarzanie wielu zdjęć jednocześnie
+- **Batch processing** - przetwarzanie wielu zdjęć jednocześnie (każdy plik osobno)
 - **Automatyczne czyszczenie** - usuwanie pustych folderów po przeniesieniu plików
 - **Wykrywanie duplikatów** - porównanie rozmiaru pliku (wagi)
   - Jeśli plik o identycznej nazwie i rozmiarze już istnieje - oznaczenie jako duplikat, usunięcie źródła
-  - Jeśli plik o identycznej nazwie ale innym rozmiarze - dodanie sufiksu _1, _2, itd.
+  - Jeśli plik o identycznej nazwie ale innym rozmiarze - dodanie sufiksu \_1, \_2, itd.
+  - **Uwaga:** Duplikaty nie są sprawdzane dla plików Google Drive (wymagałoby pobierania każdego pliku)
 - **Data z właściwości pliku** - fallback na datę modyfikacji (mtime) gdy brak EXIF
-  - Priorytet: EXIF DateTimeOriginal → DateTimeDigitized → DateTime → mtime → birthtime
+  - Priorytet: EXIF DateTimeOriginal → DateTimeDigitized → DateTime → mtime (lokalne) / modifiedTime (Google Drive) → birthtime
   - Zachowanie oryginalnych dat podczas uploadu przez File.lastModified i fs.utimes()
 - **Raport z operacji** - liczba przetworzonych/przeniesionych/pominiętych plików z listą błędów
 - **Automatyczne otwieranie** - modal organizacji otwiera się automatycznie po uploaderze plików
@@ -281,7 +290,7 @@ Manager Plikow/
 - Porównanie nazwy pliku
 - Porównanie rozmiaru pliku (wagi w bajtach)
 - Jeśli identyczne (nazwa + rozmiar) - oznaczenie jako duplikat, pominięcie przenoszenia
-- Jeśli różny rozmiar - dodanie sufiksu (_1, _2, itd.) i przeniesienie
+- Jeśli różny rozmiar - dodanie sufiksu (\_1, \_2, itd.) i przeniesienie
 - Automatyczne usuwanie plików źródłowych będących duplikatami (przy operacji move)
 
 ## API Endpointy
@@ -453,7 +462,7 @@ Manager Plikow/
 - **Wykrywanie duplikatów:**
   - Porównuje rozmiar pliku (fs.stat().size)
   - Jeśli nazwa i rozmiar identyczne → duplikat → pominięcie + usunięcie źródła (move)
-  - Jeśli nazwa identyczna ale rozmiar różny → dodanie sufiksu _1, _2, itd.
+  - Jeśli nazwa identyczna ale rozmiar różny → dodanie sufiksu \_1, \_2, itd.
 - Automatycznie usuwa puste foldery źródłowe po operacji 'move' (rekursywnie w górę)
 - Zwraca: `OrganizePhotosResult` - liczniki (processed, moved, skipped) i tablica błędów
 - Status: Zaimplementowane

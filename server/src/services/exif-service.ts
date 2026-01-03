@@ -1,6 +1,8 @@
 import exifr from 'exifr'
 import path from 'path'
 import fs from 'fs-extra'
+import os from 'os'
+import { GoogleDriveService } from './google-drive/google-drive-service'
 
 export interface ExifData {
   dateTime?: Date
@@ -24,16 +26,53 @@ export interface ExifData {
 }
 
 export class ExifService {
+  constructor() {
+    // GoogleDriveService będzie tworzony on-demand gdy potrzebny
+  }
+
   /**
    * Odczytuje metadane EXIF z pliku zdjęcia
    */
-  async readExif(filePath: string): Promise<ExifData | null> {
+  async readExif(filePath: string, tokens?: any): Promise<ExifData | null> {
+    let tempFilePath: string | null = null
+    let isGoogleDrive = false
+
     try {
-      // Sprawdź czy plik istnieje
-      const exists = await fs.pathExists(filePath)
-      if (!exists) {
-        console.error(`Plik nie istnieje: ${filePath}`)
-        return null
+      // Google Drive - pobierz plik tymczasowo
+      if (filePath.startsWith('gdrive:')) {
+        isGoogleDrive = true
+        const fileId = filePath.replace('gdrive:', '')
+        
+        if (!tokens) {
+          console.log(`Brak autoryzacji Google Drive dla: ${filePath}`)
+          return null
+        }
+
+        // Utwórz instancję serwisu Google Drive
+        const driveService = new GoogleDriveService()
+        driveService.setCredentials(tokens)
+
+        // Pobierz metadane aby uzyskać nazwę pliku
+        const metadata = await driveService.getFileMetadata(fileId)
+        const fileName = metadata.name || 'temp_file'
+        
+        // Utwórz tymczasowy plik
+        tempFilePath = path.join(os.tmpdir(), `exif_${Date.now()}_${fileName}`)
+        
+        console.log(`Pobieranie pliku z Google Drive do: ${tempFilePath}`)
+        await driveService.downloadFile(fileId, tempFilePath)
+        
+        // Użyj tymczasowego pliku do odczytu EXIF
+        filePath = tempFilePath
+      }
+      
+      // Sprawdź czy plik istnieje (dla lokalnych plików)
+      if (!isGoogleDrive) {
+        const exists = await fs.pathExists(filePath)
+        if (!exists) {
+          console.error(`Plik nie istnieje: ${filePath}`)
+          return null
+        }
       }
 
       // Sprawdź czy to plik graficzny
@@ -102,6 +141,16 @@ export class ExifService {
     } catch (error: any) {
       console.error(`Błąd odczytu EXIF z pliku ${filePath}:`, error.message)
       return null
+    } finally {
+      // Usuń tymczasowy plik Google Drive
+      if (tempFilePath) {
+        try {
+          await fs.remove(tempFilePath)
+          console.log(`Usunięto tymczasowy plik: ${tempFilePath}`)
+        } catch (err) {
+          console.error(`Nie można usunąć tymczasowego pliku: ${tempFilePath}`, err)
+        }
+      }
     }
   }
 
@@ -109,8 +158,8 @@ export class ExifService {
    * Pobiera datę wykonania zdjęcia (priorytet: EXIF DateTimeOriginal > DateTimeDigitized > DateTime > data utworzenia pliku)
    * Używa daty z właściwości pliku jako fallback gdy brak EXIF
    */
-  async getPhotoDate(filePath: string): Promise<Date | null> {
-    const exif = await this.readExif(filePath)
+  async getPhotoDate(filePath: string, tokens?: any): Promise<Date | null> {
+    const exif = await this.readExif(filePath, tokens)
     
     // Sprawdź dane EXIF
     if (exif) {
@@ -119,6 +168,34 @@ export class ExifService {
         console.log(`Używam daty EXIF dla: ${path.basename(filePath)}`)
         return exifDate
       }
+    }
+
+    // Google Drive - użyj daty modyfikacji z metadanych
+    if (filePath.startsWith('gdrive:')) {
+      const fileId = filePath.replace('gdrive:', '')
+      
+      if (!tokens) {
+        console.log(`Brak daty dla pliku Google Drive (brak autoryzacji): ${path.basename(filePath)}`)
+        return null
+      }
+
+      try {
+        const driveService = new GoogleDriveService()
+        driveService.setCredentials(tokens)
+        const metadata = await driveService.getFileMetadata(fileId)
+        
+        // Użyj modifiedTime z Google Drive
+        if (metadata.modifiedTime) {
+          const modifiedDate = new Date(metadata.modifiedTime)
+          console.log(`Używam daty modyfikacji Google Drive dla: ${metadata.name}`)
+          return modifiedDate
+        }
+      } catch (error) {
+        console.error(`Nie można pobrać metadanych Google Drive dla: ${fileId}`, error)
+      }
+      
+      console.log(`Brak daty dla pliku Google Drive: ${path.basename(filePath)}`)
+      return null
     }
 
     // Fallback: użyj daty z właściwości pliku
@@ -140,8 +217,8 @@ export class ExifService {
    * Generuje nową nazwę pliku w formacie YYYY-MM-DD_oryginalna-nazwa.ext
    * Jeśli brak daty, zwraca oryginalną nazwę
    */
-  async generatePhotoName(filePath: string, keepOriginalIfNoDate: boolean = false): Promise<string | null> {
-    const photoDate = await this.getPhotoDate(filePath)
+  async generatePhotoName(filePath: string, keepOriginalIfNoDate: boolean = false, tokens?: any): Promise<string | null> {
+    const photoDate = await this.getPhotoDate(filePath, tokens)
     
     if (!photoDate) {
       if (keepOriginalIfNoDate) {
@@ -155,8 +232,42 @@ export class ExifService {
     const month = String(photoDate.getMonth() + 1).padStart(2, '0')
     const day = String(photoDate.getDate()).padStart(2, '0')
 
-    const originalName = path.basename(filePath, path.extname(filePath))
-    const extension = path.extname(filePath)
+    // Dla plików Google Drive, pobierz oryginalną nazwę z metadanych
+    let originalName: string
+    
+    if (filePath.startsWith('gdrive:')) {
+      const fileId = filePath.replace('gdrive:', '')
+      
+      if (tokens) {
+        try {
+          const driveService = new GoogleDriveService()
+          driveService.setCredentials(tokens)
+          const metadata = await driveService.getFileMetadata(fileId)
+          originalName = path.basename(metadata.name || 'file', path.extname(metadata.name || ''))
+        } catch {
+          originalName = fileId
+        }
+      } else {
+        originalName = fileId
+      }
+    } else {
+      originalName = path.basename(filePath, path.extname(filePath))
+    }
+    
+    const extension = filePath.startsWith('gdrive:') ? '' : path.extname(filePath)
+    
+    // Dla Google Drive pobierz rozszerzenie z metadanych jeśli potrzebne
+    if (filePath.startsWith('gdrive:') && tokens) {
+      try {
+        const driveService = new GoogleDriveService()
+        driveService.setCredentials(tokens)
+        const metadata = await driveService.getFileMetadata(filePath.replace('gdrive:', ''))
+        const ext = path.extname(metadata.name || '')
+        return `${year}-${month}-${day}_${originalName}${ext}`
+      } catch {
+        return `${year}-${month}-${day}_${originalName}${extension}`
+      }
+    }
 
     return `${year}-${month}-${day}_${originalName}${extension}`
   }
@@ -167,14 +278,16 @@ export class ExifService {
    * @param baseDir - katalog bazowy
    * @param customFolder - niestandardowa nazwa folderu (opcjonalnie)
    * @param assignToYear - czy przypisywać do roku (tylko dla customFolder)
+   * @param tokens - tokeny Google Drive (opcjonalnie)
    */
   async generatePhotoPath(
     filePath: string, 
     baseDir: string, 
     customFolder?: string, 
-    assignToYear: boolean = true
+    assignToYear: boolean = true,
+    tokens?: any
   ): Promise<string | null> {
-    const photoDate = await this.getPhotoDate(filePath)
+    const photoDate = await this.getPhotoDate(filePath, tokens)
 
     // Tryb niestandardowego folderu
     if (customFolder) {
@@ -209,13 +322,14 @@ export class ExifService {
     filePath: string, 
     baseDir: string, 
     customFolder?: string, 
-    assignToYear: boolean = true
+    assignToYear: boolean = true,
+    tokens?: any
   ): Promise<string | null> {
-    const folder = await this.generatePhotoPath(filePath, baseDir, customFolder, assignToYear)
+    const folder = await this.generatePhotoPath(filePath, baseDir, customFolder, assignToYear, tokens)
     
     // Zachowaj oryginalną nazwę jeśli customFolder bez assignToYear
     const keepOriginalName = customFolder && !assignToYear
-    const newName = await this.generatePhotoName(filePath, keepOriginalName)
+    const newName = await this.generatePhotoName(filePath, keepOriginalName, tokens)
 
     if (!folder || !newName) return null
 

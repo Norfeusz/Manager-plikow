@@ -5,11 +5,18 @@ import fs from 'fs-extra'
 import os from 'os'
 import { FileService } from '../services/file-service'
 import { ExifService } from '../services/exif-service'
+import { GoogleDriveService } from '../services/google-drive/google-drive-service'
 import { BrowseRequest } from '../../../shared/src/types'
+import { tokenStore } from './auth'
 
 const router = Router()
 const fileService = new FileService()
 const exifService = new ExifService()
+
+// Funkcja sprawdzająca czy ścieżka to Google Drive
+function isGoogleDrivePath(filePath: string): boolean {
+  return filePath.startsWith('gdrive:')
+}
 
 // Funkcja pomocnicza do usuwania pustych folderów
 async function removeEmptyDirectories(dirPath: string): Promise<void> {
@@ -286,7 +293,7 @@ router.get('/exif', async (req: Request, res: Response) => {
 // POST /api/files/organize-photos
 router.post('/organize-photos', async (req: Request, res: Response) => {
   try {
-    const { sourcePath, targetBaseDir, operation = 'move', customFolder, assignToYear = true } = req.body
+    let { sourcePath, targetBaseDir, operation = 'move', customFolder, assignToYear = true } = req.body
     
     if (!sourcePath || !targetBaseDir) {
       return res.status(400).json({ 
@@ -300,13 +307,31 @@ router.post('/organize-photos', async (req: Request, res: Response) => {
       })
     }
     
-    // Sprawdź czy to plik czy folder
-    const stats = await fs.stat(sourcePath)
+    // Pobierz tokeny Google Drive jeśli są dostępne
+    const userId = 'default-user'
+    const tokens = tokenStore.get(userId)
+    
+    // Wykryj czy to Google Drive (fileId bez prefiksu gdrive:)
+    // FileId z Google Drive ma długość ~30-40 znaków i nie zawiera \ ani /
+    const isGoogleDriveFileId = !sourcePath.includes('\\') && !sourcePath.includes('/') && 
+                                 !sourcePath.includes(':') && sourcePath.length > 20
+    
+    if (isGoogleDriveFileId && !sourcePath.startsWith('gdrive:')) {
+      sourcePath = `gdrive:${sourcePath}`
+    }
+    
+    // Sprawdź czy to plik czy folder (tylko dla lokalnych plików)
+    const isGoogleDrive = isGoogleDrivePath(sourcePath)
+    let stats: any
+    
+    if (!isGoogleDrive) {
+      stats = await fs.stat(sourcePath)
+    }
     const filesToProcess: string[] = []
     const sourceDirs = new Set<string>() // Zbiór folderów źródłowych do sprawdzenia
     
-    if (stats.isDirectory()) {
-      // Zbierz wszystkie zdjęcia z folderu
+    if (!isGoogleDrive && stats && stats.isDirectory()) {
+      // Zbierz wszystkie zdjęcia z folderu (tylko lokalne pliki)
       const files = await fs.readdir(sourcePath)
       for (const file of files) {
         const fullPath = path.join(sourcePath, file)
@@ -317,8 +342,30 @@ router.post('/organize-photos', async (req: Request, res: Response) => {
         }
       }
     } else {
+      // Pojedynczy plik (lokalny lub Google Drive)
+      // Dla Google Drive sprawdź czy to nie folder
+      if (isGoogleDrive && tokens) {
+        try {
+          const driveService = new GoogleDriveService()
+          driveService.setCredentials(tokens)
+          const fileId = sourcePath.replace('gdrive:', '')
+          const metadata = await driveService.getFileMetadata(fileId)
+          
+          // Sprawdź czy to folder (mimeType dla folderów to 'application/vnd.google-apps.folder')
+          if (metadata.mimeType === 'application/vnd.google-apps.folder') {
+            return res.status(400).json({ 
+              error: 'Nie można organizować folderów. Proszę zaznaczyć pliki.' 
+            })
+          }
+        } catch (error) {
+          console.error('Błąd sprawdzania typu pliku Google Drive:', error)
+        }
+      }
+      
       filesToProcess.push(sourcePath)
-      sourceDirs.add(path.dirname(sourcePath))
+      if (!isGoogleDrive) {
+        sourceDirs.add(path.dirname(sourcePath))
+      }
     }
     
     const results = {
@@ -332,7 +379,7 @@ router.post('/organize-photos', async (req: Request, res: Response) => {
       results.processed++
       
       try {
-        let newPath = await exifService.generateFullPhotoPath(filePath, targetBaseDir, customFolder, assignToYear)
+        let newPath = await exifService.generateFullPhotoPath(filePath, targetBaseDir, customFolder, assignToYear, tokens)
         
         if (!newPath) {
           results.skipped++
@@ -348,8 +395,8 @@ router.post('/organize-photos', async (req: Request, res: Response) => {
         // Utwórz folder docelowy
         await fs.ensureDir(path.dirname(newPath))
         
-        // Sprawdź czy plik już istnieje w folderze docelowym
-        if (await fs.pathExists(newPath)) {
+        // Sprawdź czy plik już istnieje w folderze docelowym (tylko dla lokalnych plików)
+        if (!isGoogleDrivePath(filePath) && await fs.pathExists(newPath)) {
           // Plik o tej nazwie już istnieje - sprawdź rozmiar
           const sourceStats = await fs.stat(filePath)
           const targetStats = await fs.stat(newPath)
@@ -382,10 +429,31 @@ router.post('/organize-photos', async (req: Request, res: Response) => {
         }
         
         // Przenieś lub kopiuj plik
-        if (operation === 'move') {
-          await fs.move(filePath, newPath, { overwrite: false })
+        if (isGoogleDrivePath(filePath)) {
+          // Google Drive → lokalny dysk: pobierz plik
+          const fileId = filePath.replace('gdrive:', '')
+          
+          if (!tokens) {
+            results.errors.push(`${path.basename(filePath)}: Brak autoryzacji Google Drive`)
+            continue
+          }
+          
+          const driveService = new GoogleDriveService()
+          driveService.setCredentials(tokens)
+          
+          await driveService.downloadFile(fileId, newPath)
+          
+          // Jeśli operacja move, usuń plik z Google Drive
+          if (operation === 'move') {
+            await driveService.deleteFile(fileId)
+          }
         } else {
-          await fs.copy(filePath, newPath, { overwrite: false })
+          // Lokalny plik → lokalny dysk: użyj fs
+          if (operation === 'move') {
+            await fs.move(filePath, newPath, { overwrite: false })
+          } else {
+            await fs.copy(filePath, newPath, { overwrite: false })
+          }
         }
         results.moved++
         
@@ -411,7 +479,7 @@ router.post('/organize-photos', async (req: Request, res: Response) => {
 // POST /api/files/simple-move-photos - proste przeniesienie zdjęć z dodaniem daty do nazwy
 router.post('/simple-move-photos', async (req: Request, res: Response) => {
   try {
-    const { sourcePath, targetFolder } = req.body
+    let { sourcePath, targetFolder } = req.body
     
     if (!sourcePath || !targetFolder) {
       return res.status(400).json({ 
@@ -419,12 +487,30 @@ router.post('/simple-move-photos', async (req: Request, res: Response) => {
       })
     }
     
-    // Sprawdź czy to plik czy folder
-    const stats = await fs.stat(sourcePath)
+    // Pobierz tokeny Google Drive jeśli są dostępne
+    const userId = 'default-user'
+    const tokens = tokenStore.get(userId)
+    
+    // Wykryj czy to Google Drive (fileId bez prefiksu gdrive:)
+    const isGoogleDriveFileId = !sourcePath.includes('\\') && !sourcePath.includes('/') && 
+                                 !sourcePath.includes(':') && sourcePath.length > 20
+    
+    if (isGoogleDriveFileId && !sourcePath.startsWith('gdrive:')) {
+      sourcePath = `gdrive:${sourcePath}`
+    }
+    
+    // Sprawdź czy to plik czy folder (tylko dla lokalnych plików)
+    const isGoogleDrive = isGoogleDrivePath(sourcePath)
+    let stats: any
+    
+    if (!isGoogleDrive) {
+      stats = await fs.stat(sourcePath)
+    }
+    
     const filesToProcess: string[] = []
     const sourceDirs = new Set<string>()
     
-    if (stats.isDirectory()) {
+    if (!isGoogleDrive && stats && stats.isDirectory()) {
       const files = await fs.readdir(sourcePath)
       for (const file of files) {
         const fullPath = path.join(sourcePath, file)
@@ -435,8 +521,29 @@ router.post('/simple-move-photos', async (req: Request, res: Response) => {
         }
       }
     } else {
+      // Dla Google Drive sprawdź czy to nie folder
+      if (isGoogleDrive && tokens) {
+        try {
+          const driveService = new GoogleDriveService()
+          driveService.setCredentials(tokens)
+          const fileId = sourcePath.replace('gdrive:', '')
+          const metadata = await driveService.getFileMetadata(fileId)
+          
+          // Sprawdź czy to folder
+          if (metadata.mimeType === 'application/vnd.google-apps.folder') {
+            return res.status(400).json({ 
+              error: 'Nie można organizować folderów. Proszę zaznaczyć pliki.' 
+            })
+          }
+        } catch (error) {
+          console.error('Błąd sprawdzania typu pliku Google Drive:', error)
+        }
+      }
+      
       filesToProcess.push(sourcePath)
-      sourceDirs.add(path.dirname(sourcePath))
+      if (!isGoogleDrive) {
+        sourceDirs.add(path.dirname(sourcePath))
+      }
     }
     
     const results = {
@@ -454,7 +561,7 @@ router.post('/simple-move-photos', async (req: Request, res: Response) => {
       
       try {
         // Spróbuj wygenerować nazwę z datą
-        const newName = await exifService.generatePhotoName(filePath, true)
+        const newName = await exifService.generatePhotoName(filePath, true, tokens)
         
         if (!newName) {
           results.errors.push(`${path.basename(filePath)}: Błąd generowania nazwy`)
@@ -464,8 +571,8 @@ router.post('/simple-move-photos', async (req: Request, res: Response) => {
         
         let targetPath = path.join(targetFolder, newName)
         
-        // Sprawdź czy plik już istnieje w folderze docelowym
-        if (await fs.pathExists(targetPath)) {
+        // Sprawdź czy plik już istnieje w folderze docelowym (tylko dla lokalnych plików)
+        if (!isGoogleDrivePath(filePath) && await fs.pathExists(targetPath)) {
           // Plik o tej nazwie już istnieje - sprawdź rozmiar
           const sourceStats = await fs.stat(filePath)
           const targetStats = await fs.stat(targetPath)
@@ -494,7 +601,24 @@ router.post('/simple-move-photos', async (req: Request, res: Response) => {
         }
         
         // Przenieś plik
-        await fs.move(filePath, targetPath, { overwrite: false })
+        if (isGoogleDrivePath(filePath)) {
+          // Google Drive → lokalny dysk: pobierz i usuń z Google Drive
+          const fileId = filePath.replace('gdrive:', '')
+          
+          if (!tokens) {
+            results.errors.push(`${path.basename(filePath)}: Brak autoryzacji Google Drive`)
+            continue
+          }
+          
+          const driveService = new GoogleDriveService()
+          driveService.setCredentials(tokens)
+          
+          await driveService.downloadFile(fileId, targetPath)
+          await driveService.deleteFile(fileId)
+        } else {
+          // Lokalny plik → lokalny dysk: użyj fs
+          await fs.move(filePath, targetPath, { overwrite: false })
+        }
         results.moved++
         
       } catch (error: any) {
