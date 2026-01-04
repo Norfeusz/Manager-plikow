@@ -7,7 +7,14 @@ import { FileService } from '../services/file-service'
 import { ExifService } from '../services/exif-service'
 import { GoogleDriveService } from '../services/google-drive/google-drive-service'
 import { tokenStore } from './auth'
-import { isImageFile, isVideoFile, isVideoCompanionFile, getBasenameWithoutExt } from '../utils/file-helpers'
+import { 
+  isImageFile, 
+  isVideoFile, 
+  isVideoCompanionFile, 
+  getBasenameWithoutExt,
+  getOrganizableFileType,
+  OrganizableFileType
+} from '../utils/file-helpers'
 
 const router = Router()
 const fileService = new FileService()
@@ -404,8 +411,9 @@ router.post('/organize-photos', async (req: Request, res: Response) => {
         
         const isImage = isImageFile(fileName)
         const isVideo = isVideoFile(fileName)
+        const fileType = getOrganizableFileType(fileName)
         
-        if (!isImage && !isVideo) {
+        if (!fileType) {
           results.skipped++
           results.errors.push(`${fileName}: Nieobsługiwany typ pliku`)
           continue
@@ -414,30 +422,47 @@ router.post('/organize-photos', async (req: Request, res: Response) => {
         // Wybierz odpowiednią metodę generowania ścieżki
         let newPath: string | null
         let actualTargetBaseDir = targetBaseDir
+        let renameWithDate = true
         
-        // Struktura folderów:
-        // - Tryb standardowy (bez customFolder):
-        //   - Zdjęcia → targetBaseDir/YYYY/MM/ (targetBaseDir już zawiera "Zdjecia")
-        //   - Video → targetBaseDir/Filmy/YYYY/MM/
-        // - Tryb niestandardowy (z customFolder):
-        //   - Zdjęcia → targetBaseDir/[YYYY/]nazwa_folderu/
-        //   - Video → targetBaseDir/Filmy/[YYYY/]nazwa_folderu/
-        if (!customFolder) {
-          // Tryb standardowy
-          actualTargetBaseDir = isImage 
-            ? targetBaseDir  // Zdjęcia: użyj targetBaseDir bez zmian
-            : path.join(targetBaseDir, 'Filmy')  // Video: dodaj podkatalog Filmy
-        } else {
-          // Tryb niestandardowy
-          actualTargetBaseDir = isImage 
-            ? targetBaseDir  // Zdjęcia: użyj targetBaseDir bez zmian
-            : path.join(targetBaseDir, 'Filmy')  // Video: dodaj podkatalog Filmy
+        // Struktura folderów dla każdego typu:
+        // - image: targetBaseDir/YYYY/MM/
+        // - video: targetBaseDir/Filmy/YYYY/MM/
+        // - installer: D:\DATA\Inne\Pliki instalacyjne\YYYY/ (BEZ zmiany nazwy)
+        // - pdf: D:\DATA\Inne\PDF-y\YYYY/ (ze zmianą nazwy)
+        // - spreadsheet: D:\DATA\Inne\Arkusze\YYYY/ (ze zmianą nazwy)
+        // - document: D:\DATA\Inne\Dokumenty tekstowe\YYYY/ (ze zmianą nazwy)
+        // - archive: D:\DATA\Inne\Archiwa\YYYY/ (ze zmianą nazwy)
+        
+        if (fileType === 'image') {
+          actualTargetBaseDir = customFolder ? targetBaseDir : targetBaseDir
+          renameWithDate = true
+        } else if (fileType === 'video') {
+          actualTargetBaseDir = customFolder ? path.join(targetBaseDir, 'Filmy') : path.join(targetBaseDir, 'Filmy')
+          renameWithDate = true
+        } else if (fileType === 'installer') {
+          actualTargetBaseDir = 'D:\\DATA\\Inne\\Pliki instalacyjne'
+          renameWithDate = false
+        } else if (fileType === 'pdf') {
+          actualTargetBaseDir = 'D:\\DATA\\Inne\\PDF-y'
+          renameWithDate = true
+        } else if (fileType === 'spreadsheet') {
+          actualTargetBaseDir = 'D:\\DATA\\Inne\\Arkusze'
+          renameWithDate = true
+        } else if (fileType === 'document') {
+          actualTargetBaseDir = 'D:\\DATA\\Inne\\Dokumenty tekstowe'
+          renameWithDate = true
+        } else if (fileType === 'archive') {
+          actualTargetBaseDir = 'D:\\DATA\\Inne\\Archiwa'
+          renameWithDate = true
         }
         
-        if (isImage) {
+        if (fileType === 'image') {
           newPath = await exifService.generateFullPhotoPath(filePath, actualTargetBaseDir, customFolder, assignToYear, tokens)
-        } else {
+        } else if (fileType === 'video') {
           newPath = await exifService.generateFullVideoPath(filePath, actualTargetBaseDir, customFolder, assignToYear, tokens)
+        } else {
+          // Inne typy plików
+          newPath = await exifService.generateFullFilePath(filePath, actualTargetBaseDir, renameWithDate, customFolder, assignToYear, tokens)
         }
         
         if (!newPath) {
@@ -488,7 +513,7 @@ router.post('/organize-photos', async (req: Request, res: Response) => {
         // Dla filmów: znajdź i przenieś pliki towarzyszące (tylko lokalne pliki)
         const companionFiles: Array<{source: string, target: string}> = []
         
-        if (isVideo && !isGoogleDrivePath(filePath)) {
+        if (fileType === 'video' && !isGoogleDrivePath(filePath)) {
           const sourceDir = path.dirname(filePath)
           const baseName = getBasenameWithoutExt(path.basename(filePath))
           // Wyciągnij cyfry z nazwy pliku (np. GX010270 → 010270)

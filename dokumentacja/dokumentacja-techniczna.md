@@ -1,8 +1,8 @@
 # Dokumentacja Techniczna - Manager Plików
 
 **Status projektu:** W aktywnym rozwoju  
-**Ostatnia aktualizacja:** 4 stycznia 2026  
-**Wersja:** 0.6.0
+**Ostatnia aktualizacja:** 5 stycznia 2026  
+**Wersja:** 0.7.0
 
 ## Przegląd Projektu
 
@@ -222,7 +222,7 @@ Manager Plikow/
 - `DriveSelector.tsx` - zakładki i konfiguracja dysków
 - `drive-storage.ts` - zarządzanie konfiguracją w localStorage
 
-### ✅ 6. Zarządzanie Zdjęciami i Filmami
+### ✅ 6. Zarządzanie Wszystkimi Typami Plików
 
 **Status:** Zaimplementowane
 
@@ -236,6 +236,11 @@ Manager Plikow/
 - **Organizacja w strukturze**
   - **Zdjęcia:** `Zdjecia/YYYY/MM/plik.jpg` lub `Zdjecia/YYYY/NazwaWlasna/plik.jpg`
   - **Filmy:** `Zdjecia/Filmy/YYYY/MM/plik.mp4` lub `Zdjecia/Filmy/YYYY/NazwaWlasna/plik.mp4`
+  - **PDF:** `D:\DATA\Inne\PDF-y\YYYY/plik.pdf` (ze zmianą nazwy)
+  - **Arkusze:** `D:\DATA\Inne\Arkusze\YYYY/plik.xlsx` (ze zmianą nazwy)
+  - **Dokumenty:** `D:\DATA\Inne\Dokumenty tekstowe\YYYY/plik.docx` (ze zmianą nazwy)
+  - **Archiwa:** `D:\DATA\Inne\Archiwa\YYYY/plik.zip` (ze zmianą nazwy)
+  - **Instalki:** `D:\DATA\Inne\Pliki instalacyjne\YYYY/plik.exe` (BEZ zmiany nazwy)
 - **Pliki towarzyszące GoPro** (.LRV, .THM)
   - Automatyczne wykrywanie i przenoszenie razem z głównym plikiem video
   - Dopasowanie po cyfrach w nazwie pliku (np. GX010270.MP4 + GL010270.LRV + GL010270.THM)
@@ -268,20 +273,32 @@ Manager Plikow/
 - **Raport z operacji** - liczba przetworzonych/przeniesionych/pominiętych plików z listą błędów
 - **Automatyczne otwieranie** - modal organizacji otwiera się automatycznie po uploaderze plików
 
+- **Przyciski szybkiego wyboru w FileBrowser:**
+  - 📸 Zdjęcia (niebieski)
+  - 🎥 Filmy (fioletowy)
+  - 📄 PDF-y (czerwony)
+  - 📊 Arkusze (zielony)
+  - 📝 Dokumenty (żółty)
+  - 📦 Archiwa (pomarańczowy)
+  - ⚙️ Instalki (szary)
+
 #### Komponenty:
 
-- `PhotoOrganizer.tsx` - komponent organizacji mediów z modalem
-- `ExifService` (backend) - odczyt i przetwarzanie EXIF (zdjęcia) i metadanych video (filmy)
+- `PhotoOrganizer.tsx` - komponent organizacji wszystkich plików z modalem
+- `FileBrowser.tsx` - przyciski szybkiego wyboru dla różnych typów plików
+- `ExifService` (backend) - odczyt i przetwarzanie EXIF (zdjęcia), metadanych video (filmy), dat plików (inne)
 - `exif-api.ts` - komunikacja z API
 - `file-helpers.ts` - funkcje pomocnicze (rozpoznawanie typów plików, plików towarzyszących)
 
 #### Endpoint API:
 
 - `GET /api/files/exif?path=<ścieżka>` - odczyt metadanych EXIF
-- `POST /api/files/organize-photos` - organizacja zdjęć i filmów według metadanych
+- `POST /api/files/organize-photos` - organizacja wszystkich typów plików według metadanych/daty
   - Body: `{ sourcePath, targetBaseDir, operation: 'move'|'copy', customFolder?: string, assignToYear?: boolean }`
   - Zwraca: `{ processed, moved, skipped, errors[] }`
+  - Obsługuje: zdjęcia, filmy, PDF, arkusze, dokumenty, archiwa, instalki
   - Automatyczne wykrywanie duplikatów (porównanie rozmiaru)
+  - Automatyczne ścieżki docelowe dla różnych typów plików
   - Automatyczne usuwanie pustych folderów źródłowych po operacji move
 - `POST /api/files/simple-move-photos` - proste przeniesienie zdjęć do folderu
   - Body: `{ sourcePath, targetFolder }`
@@ -838,16 +855,60 @@ Przy wątpliwościach zawsze pytaj kierownika projektu przed implementacją.
 
 ## Historia Wersji
 
+### v0.7.0 (5 stycznia 2026)
+**Obsługa 5 nowych typów plików: PDF, arkusze, dokumenty, archiwa, instalki**
+
+**Dodano:**
+- Obsługa organizacji PDF (.pdf) → `D:\DATA\Inne\PDF-y\YYYY/` (ze zmianą nazwy)
+- Obsługa arkuszy kalkulacyjnych (.xlsx, .xls, .ods, .csv) → `D:\DATA\Inne\Arkusze\YYYY/` (ze zmianą nazwy)
+- Obsługa dokumentów tekstowych (.docx, .doc, .odt, .txt, .rtf) → `D:\DATA\Inne\Dokumenty tekstowe\YYYY/` (ze zmianą nazwy)
+- Obsługa archiwów (.zip, .rar, .7z, .tar, .gz) → `D:\DATA\Inne\Archiwa\YYYY/` (ze zmianą nazwy)
+- Obsługa plików instalacyjnych (.exe, .msi, .appx, .msix) → `D:\DATA\Inne\Pliki instalacyjne\YYYY/` (BEZ zmiany nazwy)
+- 7 przycisków szybkiego wyboru w FileBrowser: 📸 Zdjęcia, 🎥 Filmy, 📄 PDF-y, 📊 Arkusze, 📝 Dokumenty, 📦 Archiwa, ⚙️ Instalki
+- Automatyczne ścieżki docelowe dla każdego typu pliku
+- Struktura folderów: tylko rok (YYYY), bez miesięcy dla nowych typów
+- Data z mtime dla plików bez metadanych (PDF, dokumenty, archiwa, itp.)
+- Dysk C (lokalny) dodany do listy dysków
+- Zmiana nazwy dysku Sony → Samsung
+
+**Zmieniono:**
+- Nazwa funkcji "Organizuj media" → "Organizuj pliki"
+- UI pokazuje wszystkie obsługiwane typy plików
+- Endpoint /organize-photos obsługuje teraz wszystkie typy plików
+- PhotoOrganizer akceptuje wszystkie organizowalne typy plików
+
+**Funkcje pomocnicze:**
+- `isInstallerFile()`, `isPdfFile()`, `isSpreadsheetFile()`, `isDocumentFile()`, `isArchiveFile()`
+- `getOrganizableFileType()` - zwraca typ pliku lub null
+- `getFileDate()` - pobiera datę z mtime/modifiedTime
+- `generateFileName()` - generuje nazwę z datą lub oryginalną
+- `generateFilePath()` - struktura folderów (rok)
+- `generateFullFilePath()` - pełna ścieżka dla pliku
+
+**Struktura dysków:**
+- Wersja konfiguracji: 4
+- Dodano: Dysk C (lokalny) - `C:\`
+- Zmieniono: Sony → Samsung
+
+**Uwagi:**
+- Instalki są jedynym typem pliku który NIE zmienia nazwy (zachowuje oryginalną)
+- Wszystkie inne typy otrzymują nazwę w formacie YYYY-MM-DD_oryginalna
+- Duplikaty sprawdzane dla wszystkich typów plików
+- Obsługa Google Drive dla wszystkich typów plików
+- Modal organizacji działa identycznie dla wszystkich typów
+
 ### v0.6.0 (4 stycznia 2026)
+
 **Obsługa filmów i plików towarzyszących GoPro**
 
 **Dodano:**
+
 - Obsługa organizacji filmów (.mp4, .mov, .avi, .mkv, .m4v, .3gp)
 - Odczyt metadanych video z ffprobe (data utworzenia z tagów creation_time)
 - Detekcja plików towarzyszących GoPro (.lrv, .thm)
 - Dopasowanie plików towarzyszących po cyfrach w nazwie (np. GX010270 + GL010270)
 - Automatyczne przenoszenie plików towarzyszących razem z głównym plikiem video
-- Synchronizacja nazw plików towarzyszących z sufiksami (_1, _2) gdy istnieją duplikaty
+- Synchronizacja nazw plików towarzyszących z sufiksami (\_1, \_2) gdy istnieją duplikaty
 - Struktura folderów:
   - Zdjęcia: `Zdjecia/YYYY/MM/` (tryb standardowy) lub `Zdjecia/[YYYY/]nazwa/` (niestandardowy)
   - Filmy: `Zdjecia/Filmy/YYYY/MM/` (standardowy) lub `Zdjecia/Filmy/[YYYY/]nazwa/` (niestandardowy)
@@ -856,6 +917,7 @@ Przy wątpliwościach zawsze pytaj kierownika projektu przed implementacją.
 - Pliki .LRV i .THM bez głównego pliku video są automatycznie pomijane
 
 **Zmieniono:**
+
 - Nazwa funkcji "Organizuj zdjęcia" → "Organizuj media"
 - UI pokazuje "plików (zdjęcia/filmy)" zamiast "zdjęć"
 - Endpoint /organize-photos obsługuje teraz również filmy
@@ -863,10 +925,12 @@ Przy wątpliwościach zawsze pytaj kierownika projektu przed implementacją.
 - Fallback na mtime zamiast reject dla uszkodzonych plików video
 
 **Biblioteki:**
+
 - Dodano: fluent-ffmpeg@2.1.3, @types/fluent-ffmpeg, @ffprobe-installer/ffprobe
 - Dodano funkcje pomocnicze: isVideoFile(), isVideoCompanionFile(), getBasenameWithoutExt()
 
 **Uwagi:**
+
 - Pliki towarzyszące są wykrywane po numerach (cyfry w nazwie), nie po całej nazwie
 - Obsługuje różne warianty nazw GoPro: GX→GL, GP→GH, itd.
 - Pliki towarzyszące bez głównego pliku video otrzymują ten sam sufiks co nowy główny plik
@@ -874,9 +938,11 @@ Przy wątpliwościach zawsze pytaj kierownika projektu przed implementacją.
 - Kodaki GoPro (.lrv, .thm) są zawsze przenoszone razem z głównym plikiem
 
 ### v0.5.2 (3 stycznia 2026)
+
 **Integracja Google Drive w organizacji zdjęć**
 
 **Dodano:**
+
 - Pobieranie plików z Google Drive do lokalnego dysku podczas organizacji
 - Automatyczne wykrywanie fileId Google Drive (bez potrzeby prefiksu gdrive:)
 - Usuwanie plików z Google Drive przy operacji "przenieś"
@@ -885,10 +951,12 @@ Przy wątpliwościach zawsze pytaj kierownika projektu przed implementacją.
 - Tymczasowe pobieranie plików do odczytu EXIF
 
 **Zmieniono:**
+
 - ExifService.readExif() pobiera pliki Google Drive do temp
 - PhotoOrganizer wysyła pojedyncze pliki zamiast folderów
 - Endpoint organize-photos automatycznie dodaje prefiks gdrive: gdy wykryje fileId
 
 **Naprawiono:**
+
 - Błędy "require is not defined" w GoogleDriveService (zamiana na import)
 - ENOENT przy próbie fs.stat() na fileId Google Drive

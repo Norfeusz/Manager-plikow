@@ -560,4 +560,174 @@ export class ExifService {
 
     return path.join(folder, newName)
   }
+
+  /**
+   * Pobiera datę pliku (mtime) dla plików bez metadanych (PDF, dokumenty, archiwa, itp.)
+   */
+  async getFileDate(filePath: string, tokens?: any): Promise<Date | null> {
+    // Google Drive - użyj daty modyfikacji z metadanych
+    if (filePath.startsWith('gdrive:')) {
+      const fileId = filePath.replace('gdrive:', '')
+      
+      if (!tokens) {
+        console.log(`Brak daty dla pliku Google Drive (brak autoryzacji): ${path.basename(filePath)}`)
+        return null
+      }
+
+      try {
+        const driveService = new GoogleDriveService()
+        driveService.setCredentials(tokens)
+        const metadata = await driveService.getFileMetadata(fileId)
+        
+        if (metadata.modifiedTime) {
+          const modifiedDate = new Date(metadata.modifiedTime)
+          console.log(`Używam daty modyfikacji Google Drive dla: ${metadata.name}`)
+          return modifiedDate
+        }
+      } catch (error) {
+        console.error(`Nie można pobrać metadanych Google Drive dla: ${fileId}`, error)
+      }
+      
+      console.log(`Brak daty dla pliku Google Drive: ${path.basename(filePath)}`)
+      return null
+    }
+
+    // Lokalny plik - użyj mtime
+    try {
+      const stats = await fs.stat(filePath)
+      const fileDate = stats.mtime || stats.birthtime
+      console.log(`Używam daty pliku (${stats.mtime ? 'modyfikacji' : 'utworzenia'}) dla: ${path.basename(filePath)}`)
+      return fileDate
+    } catch (error) {
+      console.error(`Nie można odczytać daty pliku ${filePath}:`, error)
+      return null
+    }
+  }
+
+  /**
+   * Generuje nową nazwę dla pliku z datą (YYYY-MM-DD_nazwa) lub zachowuje oryginalną
+   */
+  async generateFileName(
+    filePath: string, 
+    renameWithDate: boolean = true, 
+    keepOriginalIfNoDate: boolean = false, 
+    tokens?: any
+  ): Promise<string | null> {
+    // Jeśli nie zmieniamy nazwy, zwróć oryginalną
+    if (!renameWithDate) {
+      if (filePath.startsWith('gdrive:') && tokens) {
+        try {
+          const driveService = new GoogleDriveService()
+          driveService.setCredentials(tokens)
+          const metadata = await driveService.getFileMetadata(filePath.replace('gdrive:', ''))
+          return path.basename(metadata.name || 'file')
+        } catch {
+          return path.basename(filePath)
+        }
+      }
+      return path.basename(filePath)
+    }
+
+    // Zmiana nazwy z datą
+    const fileDate = await this.getFileDate(filePath, tokens)
+    
+    if (!fileDate) {
+      if (keepOriginalIfNoDate) {
+        return path.basename(filePath)
+      }
+      return null
+    }
+
+    const year = fileDate.getFullYear()
+    const month = String(fileDate.getMonth() + 1).padStart(2, '0')
+    const day = String(fileDate.getDate()).padStart(2, '0')
+
+    let originalName: string
+    
+    if (filePath.startsWith('gdrive:')) {
+      const fileId = filePath.replace('gdrive:', '')
+      
+      if (tokens) {
+        try {
+          const driveService = new GoogleDriveService()
+          driveService.setCredentials(tokens)
+          const metadata = await driveService.getFileMetadata(fileId)
+          originalName = path.basename(metadata.name || 'file', path.extname(metadata.name || ''))
+        } catch {
+          originalName = fileId
+        }
+      } else {
+        originalName = fileId
+      }
+    } else {
+      originalName = path.basename(filePath, path.extname(filePath))
+    }
+    
+    const extension = filePath.startsWith('gdrive:') ? '' : path.extname(filePath)
+    
+    if (filePath.startsWith('gdrive:') && tokens) {
+      try {
+        const driveService = new GoogleDriveService()
+        driveService.setCredentials(tokens)
+        const metadata = await driveService.getFileMetadata(filePath.replace('gdrive:', ''))
+        const ext = path.extname(metadata.name || '')
+        return `${year}-${month}-${day}_${originalName}${ext}`
+      } catch {
+        return `${year}-${month}-${day}_${originalName}${extension}`
+      }
+    }
+
+    return `${year}-${month}-${day}_${originalName}${extension}`
+  }
+
+  /**
+   * Generuje strukturę folderów dla pliku (tylko rok)
+   */
+  async generateFilePath(
+    filePath: string, 
+    baseDir: string, 
+    customFolder?: string, 
+    assignToYear: boolean = true,
+    tokens?: any
+  ): Promise<string | null> {
+    const fileDate = await this.getFileDate(filePath, tokens)
+
+    if (customFolder) {
+      if (assignToYear && fileDate) {
+        const year = fileDate.getFullYear()
+        return path.join(baseDir, String(year), customFolder)
+      } else if (!assignToYear) {
+        return path.join(baseDir, customFolder)
+      } else if (assignToYear && !fileDate) {
+        return path.join(baseDir, 'Brak daty', customFolder)
+      }
+    }
+
+    if (!fileDate) {
+      return null
+    }
+
+    const year = fileDate.getFullYear()
+    return path.join(baseDir, String(year))
+  }
+
+  /**
+   * Generuje pełną ścieżkę docelową dla pliku (folder + nazwa)
+   */
+  async generateFullFilePath(
+    filePath: string, 
+    baseDir: string, 
+    renameWithDate: boolean = true,
+    customFolder?: string, 
+    assignToYear: boolean = true,
+    tokens?: any
+  ): Promise<string | null> {
+    const folder = await this.generateFilePath(filePath, baseDir, customFolder, assignToYear, tokens)
+    const keepOriginalName = !!(customFolder && !assignToYear)
+    const newName = await this.generateFileName(filePath, renameWithDate, keepOriginalName, tokens)
+
+    if (!folder || !newName) return null
+
+    return path.join(folder, newName)
+  }
 }

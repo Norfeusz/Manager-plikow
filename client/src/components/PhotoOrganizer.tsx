@@ -171,9 +171,23 @@ export default function PhotoOrganizer({ selectedFiles, currentPath, onComplete,
     }
   }
 
-  const photoFiles = selectedFiles.filter(f => f.type === 'image' || f.type === 'video')
+  const organizableFiles = selectedFiles.filter(f => 
+    f.type === 'image' || 
+    f.type === 'video' || 
+    f.name.toLowerCase().endsWith('.pdf') ||
+    f.name.toLowerCase().endsWith('.xlsx') || f.name.toLowerCase().endsWith('.xls') || 
+    f.name.toLowerCase().endsWith('.ods') || f.name.toLowerCase().endsWith('.csv') ||
+    f.name.toLowerCase().endsWith('.docx') || f.name.toLowerCase().endsWith('.doc') || 
+    f.name.toLowerCase().endsWith('.odt') || f.name.toLowerCase().endsWith('.txt') || 
+    f.name.toLowerCase().endsWith('.rtf') ||
+    f.name.toLowerCase().endsWith('.zip') || f.name.toLowerCase().endsWith('.rar') || 
+    f.name.toLowerCase().endsWith('.7z') || f.name.toLowerCase().endsWith('.tar') || 
+    f.name.toLowerCase().endsWith('.gz') ||
+    f.name.toLowerCase().endsWith('.exe') || f.name.toLowerCase().endsWith('.msi') || 
+    f.name.toLowerCase().endsWith('.appx') || f.name.toLowerCase().endsWith('.msix')
+  )
 
-  if (photoFiles.length === 0) {
+  if (organizableFiles.length === 0) {
     return null
   }
 
@@ -182,26 +196,32 @@ export default function PhotoOrganizer({ selectedFiles, currentPath, onComplete,
       <button
         onClick={() => setIsOpen(true)}
         className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors"
-        title="Organizuj media (zdjęcia i filmy) według daty"
+        title="Organizuj pliki według daty"
       >
-        📅 Organizuj media
+        📅 Organizuj pliki
       </button>
 
       {isOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-[600px] max-h-[80vh] overflow-y-auto">
-            <h3 className="text-xl font-semibold mb-4">Organizacja mediów według daty</h3>
+            <h3 className="text-xl font-semibold mb-4">Organizacja plików według daty</h3>
             
             <div className="mb-4 p-4 bg-blue-50 rounded">
               <p className="text-sm text-gray-700 mb-2">
-                <strong>Wybrano:</strong> {photoFiles.length} plików (zdjęcia/filmy)
-              </p>{useCustomFolder ? customFolderName || '[nazwa]' : 'MM'}
-              <p className="text-sm text-gray-600">
-                Media zostaną {operation === 'move' ? 'przeniesione' : 'skopiowane'} do struktury:
+                <strong>Wybrano:</strong> {organizableFiles.length} plików
               </p>
-              <code className="text-xs bg-white px-2 py-1 rounded block mt-2">
-                Zdjęcia/YYYY/MM/ lub Filmy/YYYY/MM/
-              </code>
+              <p className="text-sm text-gray-600">
+                Pliki zostaną {operation === 'move' ? 'przeniesione' : 'skopiowane'} według typu:
+              </p>
+              <ul className="text-xs bg-white px-2 py-2 rounded mt-2 space-y-1">
+                <li>• Zdjęcia → Zdjęcia/YYYY/MM/</li>
+                <li>• Filmy → Zdjęcia/Filmy/YYYY/MM/</li>
+                <li>• PDF → D:\DATA\Inne\PDF-y\YYYY/</li>
+                <li>• Arkusze → D:\DATA\Inne\Arkusze\YYYY/</li>
+                <li>• Dokumenty → D:\DATA\Inne\Dokumenty tekstowe\YYYY/</li>
+                <li>• Archiwa → D:\DATA\Inne\Archiwa\YYYY/</li>
+                <li>• Instalki → D:\DATA\Inne\Pliki instalacyjne\YYYY/ (bez zmiany nazwy)</li>
+              </ul>
             </div>
 
             <div className="mb-4">
@@ -404,11 +424,12 @@ export default function PhotoOrganizer({ selectedFiles, currentPath, onComplete,
             
             <div className="mb-4 p-4 bg-green-50 rounded">
               <p className="text-sm text-gray-700">
-                <strong>Wybrano:</strong> {photoFiles.length} plików (zdjęcia/filmy)
+                <strong>Wybrano:</strong> {organizableFiles.length} plików
               </p>
               <p className="text-sm text-gray-600 mt-1">
                 • Pliki z metadanymi → nazwa: YYYY-MM-DD_oryginalna.ext<br/>
-                • Pliki bez metadanych → zachowana oryginalna nazwa
+                • Pliki bez metadanych → zachowana oryginalna nazwa<br/>
+                • Instalki → zachowana oryginalna nazwa (bez daty)
               </p>
             </div>
 

@@ -2,9 +2,15 @@ import { DriveConfig } from '../../../../shared/src/types'
 
 const STORAGE_KEY = 'manager-plikow-drives'
 const STORAGE_VERSION_KEY = 'manager-plikow-drives-version'
-const CURRENT_VERSION = '3' // Zwiększ wersję gdy zmieniasz DEFAULT_DRIVES
+const CURRENT_VERSION = '4' // Zwiększ wersję gdy zmieniasz DEFAULT_DRIVES
 
 const DEFAULT_DRIVES: DriveConfig[] = [
+  {
+    id: 'local',
+    name: 'Dysk C (lokalny)',
+    defaultPath: 'C:\\',
+    needsConfiguration: false
+  },
   {
     id: 'main',
     name: 'Dysk główny (D)',
@@ -12,8 +18,8 @@ const DEFAULT_DRIVES: DriveConfig[] = [
     needsConfiguration: false
   },
   {
-    id: 'sony',
-    name: 'Dysk Sony (zdjęcia)',
+    id: 'samsung',
+    name: 'Dysk Samsung (zdjęcia)',
     needsConfiguration: true
   },
   {

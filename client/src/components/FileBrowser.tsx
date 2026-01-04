@@ -173,19 +173,131 @@ export default function FileBrowser({ initialPath, onPathChange }: FileBrowserPr
             </div>
           )}
           
-          {/* Przycisk organizacji wszystkich zdjęć z folderu */}
-          {data && data.items.some(item => item.type === 'image') && selectedFiles.length === 0 && (
-            <button
-              onClick={() => {
-                // Zaznacz wszystkie zdjęcia w folderze
-                const allPhotos = data.items.filter(item => item.type === 'image')
-                setSelectedFiles(allPhotos)
-              }}
-              className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors"
-              title="Organizuj wszystkie zdjęcia z tego folderu"
-            >
-              📸 Organizuj zdjęcia z tego folderu
-            </button>
+          {/* Przyciski szybkiego wyboru plików */}
+          {data && selectedFiles.length === 0 && (
+            <div className="flex gap-2 flex-wrap">
+              {/* Zdjęcia */}
+              {data.items.some(item => item.type === 'image') && (
+                <button
+                  onClick={() => {
+                    const allPhotos = data.items.filter(item => item.type === 'image')
+                    setSelectedFiles(allPhotos)
+                  }}
+                  className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors text-sm"
+                  title="Zaznacz wszystkie zdjęcia"
+                >
+                  📸 Zdjęcia
+                </button>
+              )}
+              
+              {/* Filmy */}
+              {data.items.some(item => item.type === 'video') && (
+                <button
+                  onClick={() => {
+                    const allVideos = data.items.filter(item => item.type === 'video')
+                    setSelectedFiles(allVideos)
+                  }}
+                  className="px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors text-sm"
+                  title="Zaznacz wszystkie filmy"
+                >
+                  🎥 Filmy
+                </button>
+              )}
+              
+              {/* PDF */}
+              {data.items.some(item => item.name.toLowerCase().endsWith('.pdf')) && (
+                <button
+                  onClick={() => {
+                    const allPdfs = data.items.filter(item => item.name.toLowerCase().endsWith('.pdf'))
+                    setSelectedFiles(allPdfs)
+                  }}
+                  className="px-3 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors text-sm"
+                  title="Zaznacz wszystkie PDF-y"
+                >
+                  📄 PDF-y
+                </button>
+              )}
+              
+              {/* Arkusze */}
+              {data.items.some(item => {
+                const ext = item.name.toLowerCase()
+                return ext.endsWith('.xlsx') || ext.endsWith('.xls') || ext.endsWith('.ods') || ext.endsWith('.csv')
+              }) && (
+                <button
+                  onClick={() => {
+                    const allSpreadsheets = data.items.filter(item => {
+                      const ext = item.name.toLowerCase()
+                      return ext.endsWith('.xlsx') || ext.endsWith('.xls') || ext.endsWith('.ods') || ext.endsWith('.csv')
+                    })
+                    setSelectedFiles(allSpreadsheets)
+                  }}
+                  className="px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors text-sm"
+                  title="Zaznacz wszystkie arkusze"
+                >
+                  📊 Arkusze
+                </button>
+              )}
+              
+              {/* Dokumenty */}
+              {data.items.some(item => {
+                const ext = item.name.toLowerCase()
+                return ext.endsWith('.docx') || ext.endsWith('.doc') || ext.endsWith('.odt') || ext.endsWith('.txt') || ext.endsWith('.rtf')
+              }) && (
+                <button
+                  onClick={() => {
+                    const allDocs = data.items.filter(item => {
+                      const ext = item.name.toLowerCase()
+                      return ext.endsWith('.docx') || ext.endsWith('.doc') || ext.endsWith('.odt') || ext.endsWith('.txt') || ext.endsWith('.rtf')
+                    })
+                    setSelectedFiles(allDocs)
+                  }}
+                  className="px-3 py-2 bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg transition-colors text-sm"
+                  title="Zaznacz wszystkie dokumenty tekstowe"
+                >
+                  📝 Dokumenty
+                </button>
+              )}
+              
+              {/* Archiwa */}
+              {data.items.some(item => {
+                const ext = item.name.toLowerCase()
+                return ext.endsWith('.zip') || ext.endsWith('.rar') || ext.endsWith('.7z') || ext.endsWith('.tar') || ext.endsWith('.gz')
+              }) && (
+                <button
+                  onClick={() => {
+                    const allArchives = data.items.filter(item => {
+                      const ext = item.name.toLowerCase()
+                      return ext.endsWith('.zip') || ext.endsWith('.rar') || ext.endsWith('.7z') || ext.endsWith('.tar') || ext.endsWith('.gz')
+                    })
+                    setSelectedFiles(allArchives)
+                  }}
+                  className="px-3 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg transition-colors text-sm"
+                  title="Zaznacz wszystkie archiwa"
+                >
+                  📦 Archiwa
+                </button>
+              )}
+              
+              {/* Instalki */}
+              {data.items.some(item => {
+                const ext = item.name.toLowerCase()
+                return ext.endsWith('.exe') || ext.endsWith('.msi') || ext.endsWith('.appx') || ext.endsWith('.msix')
+              }) && (
+                <button
+                  onClick={() => {
+                    const allInstallers = data.items.filter(item => {
+                      const ext = item.name.toLowerCase()
+                      return ext.endsWith('.exe') || ext.endsWith('.msi') || ext.endsWith('.appx') || ext.endsWith('.msix')
+                    })
+                    setSelectedFiles(allInstallers)
+                  }}
+                  className="px-3 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition-colors text-sm"
+                  title="Zaznacz wszystkie pliki instalacyjne"
+                >
+                  ⚙️ Instalki
+                </button>
+              )}
+            </div>
           )}
           
           {/* Akcje na zaznaczonych plikach */}
