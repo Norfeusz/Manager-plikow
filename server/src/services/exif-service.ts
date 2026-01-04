@@ -2,7 +2,12 @@ import exifr from 'exifr'
 import path from 'path'
 import fs from 'fs-extra'
 import os from 'os'
+import ffmpeg from 'fluent-ffmpeg'
+import ffprobeInstaller from '@ffprobe-installer/ffprobe'
 import { GoogleDriveService } from './google-drive/google-drive-service'
+
+// Ustaw ścieżkę do ffprobe
+ffmpeg.setFfprobePath(ffprobeInstaller.path)
 
 export interface ExifData {
   dateTime?: Date
@@ -155,6 +160,120 @@ export class ExifService {
   }
 
   /**
+   * Odczytuje metadane z pliku video
+   */
+  async readVideoMetadata(filePath: string, tokens?: any): Promise<any> {
+    let tempFilePath: string | null = null
+
+    try {
+      // Google Drive - pobierz plik tymczasowo
+      if (filePath.startsWith('gdrive:')) {
+        const fileId = filePath.replace('gdrive:', '')
+        
+        if (!tokens) {
+          console.log(`Brak autoryzacji Google Drive dla: ${filePath}`)
+          return null
+        }
+
+        const driveService = new GoogleDriveService()
+        driveService.setCredentials(tokens)
+
+        // Pobierz nazwę pliku z metadanych
+        const metadata = await driveService.getFileMetadata(fileId)
+        const ext = path.extname(metadata.name || '.mp4')
+        
+        // Utwórz tymczasowy plik
+        tempFilePath = path.join(os.tmpdir(), `gd_video_${fileId}${ext}`)
+        await driveService.downloadFile(fileId, tempFilePath)
+        console.log(`Pobrano plik z Google Drive do: ${tempFilePath}`)
+
+        // Użyj tymczasowego pliku
+        filePath = tempFilePath
+      }
+
+      return new Promise((resolve) => {
+        ffmpeg.ffprobe(filePath, (err, metadata) => {
+          if (err) {
+            console.error(`Błąd ffprobe dla ${path.basename(filePath)}:`, err.message)
+            resolve(null)
+            return
+          }
+          resolve(metadata)
+        })
+      })
+    } catch (error: any) {
+      console.error(`Błąd odczytu metadanych video z ${filePath}:`, error.message)
+      return null
+    } finally {
+      // Usuń tymczasowy plik Google Drive
+      if (tempFilePath) {
+        try {
+          await fs.remove(tempFilePath)
+          console.log(`Usunięto tymczasowy plik: ${tempFilePath}`)
+        } catch (err) {
+          console.error(`Nie można usunąć tymczasowego pliku: ${tempFilePath}`, err)
+        }
+      }
+    }
+  }
+
+  /**
+   * Pobiera datę wykonania video (priorytet: metadane video > data modyfikacji pliku)
+   */
+  async getVideoDate(filePath: string, tokens?: any): Promise<Date | null> {
+    const metadata = await this.readVideoMetadata(filePath, tokens)
+    
+    // Sprawdź metadane video - data utworzenia w tagach
+    if (metadata && metadata.format && metadata.format.tags) {
+      const tags = metadata.format.tags
+      const creationTime = tags.creation_time || tags['com.apple.quicktime.creationdate']
+      
+      if (creationTime) {
+        console.log(`Używam daty z metadanych video dla: ${path.basename(filePath)}`)
+        return new Date(creationTime)
+      }
+    }
+
+    // Google Drive - użyj daty modyfikacji z metadanych
+    if (filePath.startsWith('gdrive:')) {
+      const fileId = filePath.replace('gdrive:', '')
+      
+      if (!tokens) {
+        console.log(`Brak daty dla pliku Google Drive (brak autoryzacji): ${path.basename(filePath)}`)
+        return null
+      }
+
+      try {
+        const driveService = new GoogleDriveService()
+        driveService.setCredentials(tokens)
+        const metadata = await driveService.getFileMetadata(fileId)
+        
+        if (metadata.modifiedTime) {
+          const modifiedDate = new Date(metadata.modifiedTime)
+          console.log(`Używam daty modyfikacji Google Drive dla: ${metadata.name}`)
+          return modifiedDate
+        }
+      } catch (error) {
+        console.error(`Nie można pobrać metadanych Google Drive dla: ${fileId}`, error)
+      }
+      
+      console.log(`Brak daty dla pliku Google Drive: ${path.basename(filePath)}`)
+      return null
+    }
+
+    // Fallback: użyj daty z właściwości pliku
+    try {
+      const stats = await fs.stat(filePath)
+      const fileDate = stats.mtime || stats.birthtime
+      console.log(`Brak metadanych - używam daty pliku (${stats.mtime ? 'modyfikacji' : 'utworzenia'}) dla: ${path.basename(filePath)}`)
+      return fileDate
+    } catch (error) {
+      console.error(`Nie można odczytać daty pliku ${filePath}:`, error)
+      return null
+    }
+  }
+
+  /**
    * Pobiera datę wykonania zdjęcia (priorytet: EXIF DateTimeOriginal > DateTimeDigitized > DateTime > data utworzenia pliku)
    * Używa daty z właściwości pliku jako fallback gdy brak EXIF
    */
@@ -273,6 +392,112 @@ export class ExifService {
   }
 
   /**
+   * Generuje nową nazwę pliku video w formacie YYYY-MM-DD_oryginalna-nazwa.ext
+   */
+  async generateVideoName(filePath: string, keepOriginalIfNoDate: boolean = false, tokens?: any): Promise<string | null> {
+    const videoDate = await this.getVideoDate(filePath, tokens)
+    
+    if (!videoDate) {
+      if (keepOriginalIfNoDate) {
+        return path.basename(filePath)
+      }
+      return null
+    }
+
+    const year = videoDate.getFullYear()
+    const month = String(videoDate.getMonth() + 1).padStart(2, '0')
+    const day = String(videoDate.getDate()).padStart(2, '0')
+
+    let originalName: string
+    
+    if (filePath.startsWith('gdrive:')) {
+      const fileId = filePath.replace('gdrive:', '')
+      
+      if (tokens) {
+        try {
+          const driveService = new GoogleDriveService()
+          driveService.setCredentials(tokens)
+          const metadata = await driveService.getFileMetadata(fileId)
+          originalName = path.basename(metadata.name || 'file', path.extname(metadata.name || ''))
+        } catch {
+          originalName = fileId
+        }
+      } else {
+        originalName = fileId
+      }
+    } else {
+      originalName = path.basename(filePath, path.extname(filePath))
+    }
+    
+    const extension = filePath.startsWith('gdrive:') ? '' : path.extname(filePath)
+    
+    if (filePath.startsWith('gdrive:') && tokens) {
+      try {
+        const driveService = new GoogleDriveService()
+        driveService.setCredentials(tokens)
+        const metadata = await driveService.getFileMetadata(filePath.replace('gdrive:', ''))
+        const ext = path.extname(metadata.name || '')
+        return `${year}-${month}-${day}_${originalName}${ext}`
+      } catch {
+        return `${year}-${month}-${day}_${originalName}${extension}`
+      }
+    }
+
+    return `${year}-${month}-${day}_${originalName}${extension}`
+  }
+
+  /**
+   * Generuje strukturę folderów dla danego video
+   */
+  async generateVideoPath(
+    filePath: string, 
+    baseDir: string, 
+    customFolder?: string, 
+    assignToYear: boolean = true,
+    tokens?: any
+  ): Promise<string | null> {
+    const videoDate = await this.getVideoDate(filePath, tokens)
+
+    if (customFolder) {
+      if (assignToYear && videoDate) {
+        const year = videoDate.getFullYear()
+        return path.join(baseDir, String(year), customFolder)
+      } else if (!assignToYear) {
+        return path.join(baseDir, customFolder)
+      } else if (assignToYear && !videoDate) {
+        return path.join(baseDir, 'Brak daty', customFolder)
+      }
+    }
+
+    if (!videoDate) {
+      return null
+    }
+
+    const year = videoDate.getFullYear()
+    const month = String(videoDate.getMonth() + 1).padStart(2, '0')
+    return path.join(baseDir, String(year), month)
+  }
+
+  /**
+   * Generuje pełną ścieżkę docelową dla video
+   */
+  async generateFullVideoPath(
+    filePath: string, 
+    baseDir: string, 
+    customFolder?: string, 
+    assignToYear: boolean = true,
+    tokens?: any
+  ): Promise<string | null> {
+    const folder = await this.generateVideoPath(filePath, baseDir, customFolder, assignToYear, tokens)
+    const keepOriginalName = !!(customFolder && !assignToYear)
+    const newName = await this.generateVideoName(filePath, keepOriginalName, tokens)
+
+    if (!folder || !newName) return null
+
+    return path.join(folder, newName)
+  }
+
+  /**
    * Generuje strukturę folderów dla danego zdjęcia
    * @param filePath - ścieżka do pliku
    * @param baseDir - katalog bazowy
@@ -328,7 +553,7 @@ export class ExifService {
     const folder = await this.generatePhotoPath(filePath, baseDir, customFolder, assignToYear, tokens)
     
     // Zachowaj oryginalną nazwę jeśli customFolder bez assignToYear
-    const keepOriginalName = customFolder && !assignToYear
+    const keepOriginalName = !!(customFolder && !assignToYear)
     const newName = await this.generatePhotoName(filePath, keepOriginalName, tokens)
 
     if (!folder || !newName) return null

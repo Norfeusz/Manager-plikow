@@ -1,8 +1,8 @@
 # Dokumentacja Techniczna - Manager Plików
 
 **Status projektu:** W aktywnym rozwoju  
-**Ostatnia aktualizacja:** 3 stycznia 2026  
-**Wersja:** 0.5.2
+**Ostatnia aktualizacja:** 4 stycznia 2026  
+**Wersja:** 0.6.0
 
 ## Przegląd Projektu
 
@@ -35,7 +35,9 @@ Manager Plików to narzędzie webowe służące do zarządzania plikami multimed
 - **multer** - obsługa uploadu plików
 - **googleapis** - integracja z Google Drive API
 - **google-auth-library** - OAuth 2.0 dla Google Drive
-- **exifr** - odczyt metadanych EXIF ze zdjęć (do implementacji)
+- **exifr** - odczyt metadanych EXIF ze zdjęć
+- **fluent-ffmpeg** - odczyt metadanych video
+- **@ffprobe-installer/ffprobe** - binary ffprobe do analizy video
 - **cors** - obsługa CORS
 - **dotenv** - zmienne środowiskowe
 
@@ -220,16 +222,25 @@ Manager Plikow/
 - `DriveSelector.tsx` - zakładki i konfiguracja dysków
 - `drive-storage.ts` - zarządzanie konfiguracją w localStorage
 
-### ✅ 6. Zarządzanie Zdjęciami
+### ✅ 6. Zarządzanie Zdjęciami i Filmami
 
 **Status:** Zaimplementowane
 
 #### Funkcje:
 
-- **Odczyt metadanych EXIF** - data wykonania, aparat, ustawienia, GPS
-  - **Obsługa Google Drive** - tymczasowe pobieranie plików z Google Drive do odczytu EXIF
-- **Automatyczne nazewnictwo** - `YYYY-MM-DD_oryginalna-nazwa.jpg`
-- **Organizacja w strukturze** - `Zdjecia/YYYY/MM/plik.jpg` lub `Zdjecia/YYYY/NazwaWlasna/plik.jpg`
+- **Odczyt metadanych**
+  - **Zdjęcia (EXIF)** - data wykonania, aparat, ustawienia, GPS
+  - **Filmy (ffprobe)** - data utworzenia z metadanych video
+  - **Obsługa Google Drive** - tymczasowe pobieranie plików z Google Drive do odczytu metadanych
+- **Automatyczne nazewnictwo** - `YYYY-MM-DD_oryginalna-nazwa.jpg/mp4`
+- **Organizacja w strukturze**
+  - **Zdjęcia:** `Zdjecia/YYYY/MM/plik.jpg` lub `Zdjecia/YYYY/NazwaWlasna/plik.jpg`
+  - **Filmy:** `Zdjecia/Filmy/YYYY/MM/plik.mp4` lub `Zdjecia/Filmy/YYYY/NazwaWlasna/plik.mp4`
+- **Pliki towarzyszące GoPro** (.LRV, .THM)
+  - Automatyczne wykrywanie i przenoszenie razem z głównym plikiem video
+  - Dopasowanie po cyfrach w nazwie pliku (np. GX010270.MP4 + GL010270.LRV + GL010270.THM)
+  - Obsługa różnych wariantów nazw GoPro (GX→GL, GP→GH, itd.)
+  - Jeśli plik towarzyszący istnieje bez głównego pliku - dodanie sufiksu do nowych plików
 - **Wybór operacji** - przeniesienie (move) lub kopiowanie (copy) plików
 - **Obsługa wielu źródeł**:
   - **Dyski lokalne** - standardowe operacje fs.move/fs.copy
@@ -250,22 +261,24 @@ Manager Plikow/
   - Jeśli plik o identycznej nazwie i rozmiarze już istnieje - oznaczenie jako duplikat, usunięcie źródła
   - Jeśli plik o identycznej nazwie ale innym rozmiarze - dodanie sufiksu \_1, \_2, itd.
   - **Uwaga:** Duplikaty nie są sprawdzane dla plików Google Drive (wymagałoby pobierania każdego pliku)
-- **Data z właściwości pliku** - fallback na datę modyfikacji (mtime) gdy brak EXIF
-  - Priorytet: EXIF DateTimeOriginal → DateTimeDigitized → DateTime → mtime (lokalne) / modifiedTime (Google Drive) → birthtime
+- **Data z właściwości pliku** - fallback na datę modyfikacji (mtime) gdy brak metadanych
+  - Priorytet zdjęć: EXIF DateTimeOriginal → DateTimeDigitized → DateTime → mtime (lokalne) / modifiedTime (Google Drive) → birthtime
+  - Priorytet filmów: metadane video (creation_time) → mtime (lokalne) / modifiedTime (Google Drive) → birthtime
   - Zachowanie oryginalnych dat podczas uploadu przez File.lastModified i fs.utimes()
 - **Raport z operacji** - liczba przetworzonych/przeniesionych/pominiętych plików z listą błędów
 - **Automatyczne otwieranie** - modal organizacji otwiera się automatycznie po uploaderze plików
 
 #### Komponenty:
 
-- `PhotoOrganizer.tsx` - komponent organizacji zdjęć z modalem
-- `ExifService` (backend) - odczyt i przetwarzanie EXIF
+- `PhotoOrganizer.tsx` - komponent organizacji mediów z modalem
+- `ExifService` (backend) - odczyt i przetwarzanie EXIF (zdjęcia) i metadanych video (filmy)
 - `exif-api.ts` - komunikacja z API
+- `file-helpers.ts` - funkcje pomocnicze (rozpoznawanie typów plików, plików towarzyszących)
 
 #### Endpoint API:
 
 - `GET /api/files/exif?path=<ścieżka>` - odczyt metadanych EXIF
-- `POST /api/files/organize-photos` - organizacja zdjęć według daty EXIF
+- `POST /api/files/organize-photos` - organizacja zdjęć i filmów według metadanych
   - Body: `{ sourcePath, targetBaseDir, operation: 'move'|'copy', customFolder?: string, assignToYear?: boolean }`
   - Zwraca: `{ processed, moved, skipped, errors[] }`
   - Automatyczne wykrywanie duplikatów (porównanie rozmiaru)
@@ -275,13 +288,15 @@ Manager Plikow/
   - Zmienia tylko nazwę na YYYY-MM-DD_nazwa, nie tworzy struktury folderów
   - Automatyczne wykrywanie duplikatów
 
-### 🔄 7. Zarządzanie Filmami
+### ✅ 7. Obsługa Plików Towarzyszących
 
-**Status:** Do implementacji
+**Status:** Zaimplementowane dla filmów GoPro
 
-- Podobna logika jak dla zdjęć
-- Odczyt metadanych video
-- Struktura: `Filmy/YYYY/MM/plik.mp4`
+- **Automatyczne wykrywanie** - pliki .LRV (Low Resolution Video) i .THM (Thumbnail)
+- **Dopasowanie po cyfrach** - GX010270.MP4 łączy się z GL010270.LRV i GL010270.THM
+- **Synchroniczne przenoszenie** - wszystkie pliki przenoszone razem z zachowaniem nowych nazw
+- **Pomijanie samodzielnych** - pliki .LRV i .THM bez głównego pliku video są pomijane
+- **Obsługa konfliktów** - jeśli plik towarzyszący istnieje bez głównego video, nowe pliki dostają sufiks
 
 ### ✅ 8. Wykrywanie Duplikatów
 
@@ -820,3 +835,60 @@ App.tsx
 ## Kontakt z Kierownikiem
 
 Przy wątpliwościach zawsze pytaj kierownika projektu przed implementacją.
+
+## Historia Wersji
+
+### v0.6.0 (4 stycznia 2026)
+**Obsługa filmów i plików towarzyszących GoPro**
+
+**Dodano:**
+- Obsługa organizacji filmów (.mp4, .mov, .avi, .mkv, .m4v, .3gp)
+- Odczyt metadanych video z ffprobe (data utworzenia z tagów creation_time)
+- Detekcja plików towarzyszących GoPro (.lrv, .thm)
+- Dopasowanie plików towarzyszących po cyfrach w nazwie (np. GX010270 + GL010270)
+- Automatyczne przenoszenie plików towarzyszących razem z głównym plikiem video
+- Synchronizacja nazw plików towarzyszących z sufiksami (_1, _2) gdy istnieją duplikaty
+- Struktura folderów:
+  - Zdjęcia: `Zdjecia/YYYY/MM/` (tryb standardowy) lub `Zdjecia/[YYYY/]nazwa/` (niestandardowy)
+  - Filmy: `Zdjecia/Filmy/YYYY/MM/` (standardowy) lub `Zdjecia/Filmy/[YYYY/]nazwa/` (niestandardowy)
+- Sprawdzanie duplikatów dla filmów (porównanie rozmiarów)
+- Obsługa Google Drive dla filmów (pobieranie, metadane, usuwanie)
+- Pliki .LRV i .THM bez głównego pliku video są automatycznie pomijane
+
+**Zmieniono:**
+- Nazwa funkcji "Organizuj zdjęcia" → "Organizuj media"
+- UI pokazuje "plików (zdjęcia/filmy)" zamiast "zdjęć"
+- Endpoint /organize-photos obsługuje teraz również filmy
+- Priorytet dat dla video: metadane video (creation_time) → mtime/modifiedTime → birthtime
+- Fallback na mtime zamiast reject dla uszkodzonych plików video
+
+**Biblioteki:**
+- Dodano: fluent-ffmpeg@2.1.3, @types/fluent-ffmpeg, @ffprobe-installer/ffprobe
+- Dodano funkcje pomocnicze: isVideoFile(), isVideoCompanionFile(), getBasenameWithoutExt()
+
+**Uwagi:**
+- Pliki towarzyszące są wykrywane po numerach (cyfry w nazwie), nie po całej nazwie
+- Obsługuje różne warianty nazw GoPro: GX→GL, GP→GH, itd.
+- Pliki towarzyszące bez głównego pliku video otrzymują ten sam sufiks co nowy główny plik
+- Dla video bez metadanych lub uszkodzonych używana jest data modyfikacji pliku (mtime)
+- Kodaki GoPro (.lrv, .thm) są zawsze przenoszone razem z głównym plikiem
+
+### v0.5.2 (3 stycznia 2026)
+**Integracja Google Drive w organizacji zdjęć**
+
+**Dodano:**
+- Pobieranie plików z Google Drive do lokalnego dysku podczas organizacji
+- Automatyczne wykrywanie fileId Google Drive (bez potrzeby prefiksu gdrive:)
+- Usuwanie plików z Google Drive przy operacji "przenieś"
+- Obsługa metadanych Google Drive (modifiedTime) jako fallback daty
+- Filtrowanie folderów Google Drive (nie można organizować folderów)
+- Tymczasowe pobieranie plików do odczytu EXIF
+
+**Zmieniono:**
+- ExifService.readExif() pobiera pliki Google Drive do temp
+- PhotoOrganizer wysyła pojedyncze pliki zamiast folderów
+- Endpoint organize-photos automatycznie dodaje prefiks gdrive: gdy wykryje fileId
+
+**Naprawiono:**
+- Błędy "require is not defined" w GoogleDriveService (zamiana na import)
+- ENOENT przy próbie fs.stat() na fileId Google Drive

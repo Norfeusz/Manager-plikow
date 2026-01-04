@@ -6,8 +6,8 @@ import os from 'os'
 import { FileService } from '../services/file-service'
 import { ExifService } from '../services/exif-service'
 import { GoogleDriveService } from '../services/google-drive/google-drive-service'
-import { BrowseRequest } from '../../../shared/src/types'
 import { tokenStore } from './auth'
+import { isImageFile, isVideoFile, isVideoCompanionFile, getBasenameWithoutExt } from '../utils/file-helpers'
 
 const router = Router()
 const fileService = new FileService()
@@ -49,7 +49,7 @@ const upload = multer({
 })
 
 // GET /api/files/drives - lista dostępnych dysków
-router.get('/drives', async (req: Request, res: Response) => {
+router.get('/drives', async (_req: Request, res: Response) => {
   try {
     const drives = []
     
@@ -61,7 +61,7 @@ router.get('/drives', async (req: Request, res: Response) => {
         
         try {
           await fs.access(drivePath)
-          const stats = await fs.stat(drivePath)
+          await fs.stat(drivePath)
           
           drives.push({
             letter,
@@ -375,19 +375,77 @@ router.post('/organize-photos', async (req: Request, res: Response) => {
       errors: [] as string[]
     }
     
+    // Zbiór przetworzonych plików towarzyszących (aby nie przetwarzać ich osobno)
+    const processedCompanions = new Set<string>()
+    
     for (const filePath of filesToProcess) {
+      // Pomiń pliki towarzyszące - zostaną przetworzone razem z głównym plikiem
+      if (!isGoogleDrivePath(filePath) && isVideoCompanionFile(path.basename(filePath))) {
+        // Pliki towarzyszące pomijamy zawsze - będą przetworzone z głównym plikiem video
+        console.log(`Pomijam plik towarzyszący: ${path.basename(filePath)}`)
+        continue
+      }
+      
       results.processed++
       
       try {
-        let newPath = await exifService.generateFullPhotoPath(filePath, targetBaseDir, customFolder, assignToYear, tokens)
+        // Rozpoznaj typ pliku
+        const fileName = isGoogleDrivePath(filePath) 
+          ? (await (async () => {
+              if (tokens) {
+                const driveService = new GoogleDriveService()
+                driveService.setCredentials(tokens)
+                const metadata = await driveService.getFileMetadata(filePath.replace('gdrive:', ''))
+                return metadata.name || path.basename(filePath)
+              }
+              return path.basename(filePath)
+            })())
+          : path.basename(filePath)
+        
+        const isImage = isImageFile(fileName)
+        const isVideo = isVideoFile(fileName)
+        
+        if (!isImage && !isVideo) {
+          results.skipped++
+          results.errors.push(`${fileName}: Nieobsługiwany typ pliku`)
+          continue
+        }
+        
+        // Wybierz odpowiednią metodę generowania ścieżki
+        let newPath: string | null
+        let actualTargetBaseDir = targetBaseDir
+        
+        // Struktura folderów:
+        // - Tryb standardowy (bez customFolder):
+        //   - Zdjęcia → targetBaseDir/YYYY/MM/ (targetBaseDir już zawiera "Zdjecia")
+        //   - Video → targetBaseDir/Filmy/YYYY/MM/
+        // - Tryb niestandardowy (z customFolder):
+        //   - Zdjęcia → targetBaseDir/[YYYY/]nazwa_folderu/
+        //   - Video → targetBaseDir/Filmy/[YYYY/]nazwa_folderu/
+        if (!customFolder) {
+          // Tryb standardowy
+          actualTargetBaseDir = isImage 
+            ? targetBaseDir  // Zdjęcia: użyj targetBaseDir bez zmian
+            : path.join(targetBaseDir, 'Filmy')  // Video: dodaj podkatalog Filmy
+        } else {
+          // Tryb niestandardowy
+          actualTargetBaseDir = isImage 
+            ? targetBaseDir  // Zdjęcia: użyj targetBaseDir bez zmian
+            : path.join(targetBaseDir, 'Filmy')  // Video: dodaj podkatalog Filmy
+        }
+        
+        if (isImage) {
+          newPath = await exifService.generateFullPhotoPath(filePath, actualTargetBaseDir, customFolder, assignToYear, tokens)
+        } else {
+          newPath = await exifService.generateFullVideoPath(filePath, actualTargetBaseDir, customFolder, assignToYear, tokens)
+        }
         
         if (!newPath) {
           results.skipped++
           if (!customFolder) {
-            // Tryb standardowy bez daty - sugeruj użycie niestandardowego folderu
-            results.errors.push(`${path.basename(filePath)}: Brak danych EXIF. Użyj niestandardowego folderu z opcją "Nie przypisuj do roku" lub dodaj do folderu "Brak daty"`)
+            results.errors.push(`${fileName}: Brak metadanych. Użyj niestandardowego folderu z opcją "Nie przypisuj do roku"`)
           } else {
-            results.errors.push(`${path.basename(filePath)}: Brak danych EXIF`)
+            results.errors.push(`${fileName}: Brak metadanych`)
           }
           continue
         }
@@ -395,70 +453,151 @@ router.post('/organize-photos', async (req: Request, res: Response) => {
         // Utwórz folder docelowy
         await fs.ensureDir(path.dirname(newPath))
         
-        // Sprawdź czy plik już istnieje w folderze docelowym (tylko dla lokalnych plików)
+        // Obsługa duplikatów i sufik sów
+        let finalPath = newPath
+        let suffix = ''
+        
         if (!isGoogleDrivePath(filePath) && await fs.pathExists(newPath)) {
-          // Plik o tej nazwie już istnieje - sprawdź rozmiar
           const sourceStats = await fs.stat(filePath)
           const targetStats = await fs.stat(newPath)
           
           if (sourceStats.size === targetStats.size) {
-            // To jest duplikat (taka sama nazwa i rozmiar) - pomiń
-            console.log(`Duplikat: ${path.basename(filePath)} (${sourceStats.size} bajtów)`)
-            results.errors.push(`${path.basename(filePath)}: Duplikat (taki sam plik już istnieje)`)
+            console.log(`Duplikat: ${fileName} (${sourceStats.size} bajtów)`)
+            results.errors.push(`${fileName}: Duplikat (taki sam plik już istnieje)`)
             results.skipped++
             
-            // Jeśli to operacja move, usuń źródłowy plik (bo to duplikat)
             if (operation === 'move') {
               await fs.remove(filePath)
             }
             continue
           }
           
-          // Rozmiar inny - dodaj sufiks (_1, _2, itd.)
+          // Dodaj sufiks
           const ext = path.extname(newPath)
           const nameWithoutExt = newPath.slice(0, -ext.length)
           let counter = 1
-          let newPathWithSuffix = `${nameWithoutExt}_${counter}${ext}`
           
-          while (await fs.pathExists(newPathWithSuffix)) {
+          while (await fs.pathExists(`${nameWithoutExt}_${counter}${ext}`)) {
             counter++
-            newPathWithSuffix = `${nameWithoutExt}_${counter}${ext}`
           }
           
-          newPath = newPathWithSuffix
+          suffix = `_${counter}`
+          finalPath = `${nameWithoutExt}${suffix}${ext}`
         }
         
-        // Przenieś lub kopiuj plik
+        // Dla filmów: znajdź i przenieś pliki towarzyszące (tylko lokalne pliki)
+        const companionFiles: Array<{source: string, target: string}> = []
+        
+        if (isVideo && !isGoogleDrivePath(filePath)) {
+          const sourceDir = path.dirname(filePath)
+          const baseName = getBasenameWithoutExt(path.basename(filePath))
+          // Wyciągnij cyfry z nazwy pliku (np. GX010270 → 010270)
+          const baseDigits = baseName.match(/\d+/)?.[0] || ''
+          
+          try {
+            const dirFiles = await fs.readdir(sourceDir)
+            
+            for (const dirFile of dirFiles) {
+              const dirFilePath = path.join(sourceDir, dirFile)
+              const dirFileBase = getBasenameWithoutExt(dirFile)
+              const dirFileDigits = dirFileBase.match(/\d+/)?.[0] || ''
+              
+              // Sprawdź czy to plik towarzyszący (te same cyfry w nazwie, rozszerzenie .lrv lub .thm)
+              if (dirFileDigits && baseDigits && 
+                  dirFileDigits === baseDigits && 
+                  isVideoCompanionFile(dirFile)) {
+                
+                // Wygeneruj ścieżkę dla pliku towarzyszącego (ta sama nazwa co główny plik)
+                const companionExt = path.extname(dirFile)
+                const companionTargetPath = finalPath.slice(0, -path.extname(finalPath).length) + companionExt
+                
+                companionFiles.push({
+                  source: dirFilePath,
+                  target: companionTargetPath
+                })
+                
+                processedCompanions.add(dirFilePath)
+              }
+            }
+          } catch (err) {
+            console.log(`Nie można przeszukać katalogu w poszukiwaniu plików towarzyszących: ${sourceDir}`)
+          }
+        }
+        
+        // Sprawdź czy istnieje plik towarzyszący bez głównego video
+        if (isVideo && !isGoogleDrivePath(filePath) && companionFiles.length > 0) {
+          for (const companion of companionFiles) {
+            if (await fs.pathExists(companion.target)) {
+              // Plik towarzyszący już istnieje - sprawdź czy główny plik też istnieje
+              if (!await fs.pathExists(finalPath)) {
+                // Głównego nie ma, a towarzyszący jest - dodaj sufiks do nowego pliku
+                const ext = path.extname(finalPath)
+                const nameWithoutExt = finalPath.slice(0, -ext.length)
+                let counter = 1
+                
+                while (await fs.pathExists(`${nameWithoutExt}_${counter}${ext}`)) {
+                  counter++
+                }
+                
+                suffix = `_${counter}`
+                const oldFinalPath = finalPath
+                finalPath = `${nameWithoutExt}${suffix}${ext}`
+                
+                // Zaktualizuj ścieżki plików towarzyszących
+                for (const comp of companionFiles) {
+                  const compExt = path.extname(comp.target)
+                  const compNameWithoutExt = comp.target.slice(0, -compExt.length)
+                  comp.target = `${compNameWithoutExt.replace(oldFinalPath.slice(0, -ext.length), finalPath.slice(0, -ext.length))}${compExt}`
+                }
+              }
+            }
+          }
+        }
+        
+        // Przenieś lub kopiuj główny plik
         if (isGoogleDrivePath(filePath)) {
-          // Google Drive → lokalny dysk: pobierz plik
           const fileId = filePath.replace('gdrive:', '')
           
           if (!tokens) {
-            results.errors.push(`${path.basename(filePath)}: Brak autoryzacji Google Drive`)
+            results.errors.push(`${fileName}: Brak autoryzacji Google Drive`)
             continue
           }
           
           const driveService = new GoogleDriveService()
           driveService.setCredentials(tokens)
           
-          await driveService.downloadFile(fileId, newPath)
+          await driveService.downloadFile(fileId, finalPath)
           
-          // Jeśli operacja move, usuń plik z Google Drive
           if (operation === 'move') {
             await driveService.deleteFile(fileId)
           }
         } else {
-          // Lokalny plik → lokalny dysk: użyj fs
           if (operation === 'move') {
-            await fs.move(filePath, newPath, { overwrite: false })
+            await fs.move(filePath, finalPath, { overwrite: false })
           } else {
-            await fs.copy(filePath, newPath, { overwrite: false })
+            await fs.copy(filePath, finalPath, { overwrite: false })
           }
         }
+        
+        // Przenieś pliki towarzyszące
+        for (const companion of companionFiles) {
+          try {
+            if (operation === 'move') {
+              await fs.move(companion.source, companion.target, { overwrite: false })
+            } else {
+              await fs.copy(companion.source, companion.target, { overwrite: false })
+            }
+            console.log(`Przeniesiono plik towarzyszący: ${path.basename(companion.source)} → ${path.basename(companion.target)}`)
+          } catch (err: any) {
+            console.error(`Błąd przenoszenia pliku towarzyszącego ${path.basename(companion.source)}:`, err.message)
+          }
+        }
+        
         results.moved++
         
       } catch (error: any) {
-        results.errors.push(`${path.basename(filePath)}: ${error.message}`)
+        const fileName = path.basename(filePath)
+        results.errors.push(`${fileName}: ${error.message}`)
       }
     }
     

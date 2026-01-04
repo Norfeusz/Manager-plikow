@@ -171,7 +171,7 @@ export default function PhotoOrganizer({ selectedFiles, currentPath, onComplete,
     }
   }
 
-  const photoFiles = selectedFiles.filter(f => f.type === 'image')
+  const photoFiles = selectedFiles.filter(f => f.type === 'image' || f.type === 'video')
 
   if (photoFiles.length === 0) {
     return null
@@ -182,25 +182,25 @@ export default function PhotoOrganizer({ selectedFiles, currentPath, onComplete,
       <button
         onClick={() => setIsOpen(true)}
         className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors"
-        title="Organizuj zdjęcia według daty EXIF"
+        title="Organizuj media (zdjęcia i filmy) według daty"
       >
-        📅 Organizuj zdjęcia
+        📅 Organizuj media
       </button>
 
       {isOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-[600px] max-h-[80vh] overflow-y-auto">
-            <h3 className="text-xl font-semibold mb-4">Organizacja zdjęć według daty EXIF</h3>
+            <h3 className="text-xl font-semibold mb-4">Organizacja mediów według daty</h3>
             
             <div className="mb-4 p-4 bg-blue-50 rounded">
               <p className="text-sm text-gray-700 mb-2">
-                <strong>Wybrano:</strong> {photoFiles.length} zdjęć
+                <strong>Wybrano:</strong> {photoFiles.length} plików (zdjęcia/filmy)
               </p>{useCustomFolder ? customFolderName || '[nazwa]' : 'MM'}
               <p className="text-sm text-gray-600">
-                Zdjęcia zostaną {operation === 'move' ? 'przeniesione' : 'skopiowane'} do struktury:
+                Media zostaną {operation === 'move' ? 'przeniesione' : 'skopiowane'} do struktury:
               </p>
               <code className="text-xs bg-white px-2 py-1 rounded block mt-2">
-                {targetDir}/YYYY/MM/YYYY-MM-DD_nazwa.jpg
+                Zdjęcia/YYYY/MM/ lub Filmy/YYYY/MM/
               </code>
             </div>
 
@@ -400,15 +400,15 @@ export default function PhotoOrganizer({ selectedFiles, currentPath, onComplete,
       {showSimpleMoveModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60]">
           <div className="bg-white rounded-lg p-6 w-[600px] max-h-[80vh] overflow-y-auto">
-            <h3 className="text-xl font-semibold mb-4">Przenieś zdjęcia do folderu</h3>
+            <h3 className="text-xl font-semibold mb-4">Przenieś media do folderu</h3>
             
             <div className="mb-4 p-4 bg-green-50 rounded">
               <p className="text-sm text-gray-700">
-                <strong>Wybrano:</strong> {photoFiles.length} zdjęć
+                <strong>Wybrano:</strong> {photoFiles.length} plików (zdjęcia/filmy)
               </p>
               <p className="text-sm text-gray-600 mt-1">
-                • Zdjęcia z datą EXIF → nazwa: YYYY-MM-DD_oryginalna.jpg<br/>
-                • Zdjęcia bez daty → zachowana oryginalna nazwa
+                • Pliki z metadanymi → nazwa: YYYY-MM-DD_oryginalna.ext<br/>
+                • Pliki bez metadanych → zachowana oryginalna nazwa
               </p>
             </div>
 
